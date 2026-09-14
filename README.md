@@ -53,6 +53,35 @@ For TRAPI, follow [`BENCHMARK_RUNBOOK.md`](BENCHMARK_RUNBOOK.md) before running.
 Confirm the endpoint, exact deployment, reasoning effort, and API mode rather
 than reusing the example or a previous job's values.
 
+### VS Code Copilot proxy
+
+The harness can retain the OpenHands loop while routing its individual model
+calls through the `GH Copilot Server` VS Code extension:
+
+```bash
+export COPILOT_PROXY_BASE_URL=http://127.0.0.1:3141/v1
+
+.venv/bin/harbor run -p tasks/<task_name> \
+    --agent agent_harness.openhands_agent:OpenHandsAgent \
+    -m copilot/<EXACT_MODEL_ID> -n 1 \
+    --n-concurrent-agents 1 \
+    --ak reasoning_effort=<CONFIRMED_REASONING_EFFORT> \
+    --ak api_mode=chat_completions
+```
+
+Start the extension server first and confirm the exact model ID with
+`curl "$COPILOT_PROXY_BASE_URL/models"`. Each trial uses an authenticated,
+short-lived relay to reach the host-only extension from Docker. The relay
+checks the requested model against `/v1/models` before every completion and
+rejects any response whose model differs.
+
+The VS Code Language Model API has no system role. For Copilot proxy runs, the
+harness wraps the task's system prompt in an explicit authoritative-instruction
+block before the extension converts it to a user message. This is not
+protocol-equivalent to a native system message and must be reported as a
+benchmark limitation. The extension also reports zero token usage, which the
+harness records as unavailable rather than as zero.
+
 ## Leaderboard Configuration
 
 To match the configuration used in the leaderboard, run the complete task set

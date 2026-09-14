@@ -5,10 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from agent_harness.openhands_agent import (
     OpenHandsAgent,
+    _copilot_model_id,
     _forwarded_env,
     _trapi_token,
     _validated_trapi_base_url,
@@ -44,6 +45,15 @@ class FakeEnvironment:
 
 
 class TrapiTokenTransportTests(unittest.TestCase):
+    def test_recognizes_only_exact_copilot_provider_models(self) -> None:
+        self.assertEqual(
+            _copilot_model_id("copilot/gpt-5.6-sol"),
+            "gpt-5.6-sol",
+        )
+        self.assertIsNone(_copilot_model_id("openai/gpt-5.6-sol"))
+        with self.assertRaisesRegex(RuntimeError, "exact form"):
+            _copilot_model_id("copilot/team/gpt-5.6-sol")
+
     def test_azure_cli_token_request_has_timeout(self) -> None:
         with (
             patch.dict(
@@ -214,6 +224,94 @@ class TrapiTokenTransportTests(unittest.TestCase):
         )
         self.assertIsNotNone(environment.local_path)
         self.assertFalse(environment.local_path.exists())
+
+    def test_copilot_run_uses_isolated_authenticated_relay(self) -> None:
+        environment = FakeEnvironment()
+        agent = OpenHandsAgent.__new__(OpenHandsAgent)
+        agent.llm_kwargs = {
+            "api_mode": "chat_completions",
+            "reasoning_effort": "medium",
+        }
+        relay = MagicMock()
+        relay.bearer_token = "relay-token"
+        relay.container_base_url = "http://172.17.0.1:32000/v1"
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "COPILOT_PROXY_BASE_URL": (
+                        "http://127.0.0.1:3141/v1"
+                    )
+                },
+                clear=True,
+            ),
+            patch(
+                "agent_harness.openhands_agent.CopilotProxyRelay",
+                return_value=relay,
+            ) as relay_class,
+            patch.object(
+                agent,
+                "_stage_secret",
+                AsyncMock(return_value="/tmp/private-relay-token"),
+            ) as stage_secret,
+            patch.object(
+                agent,
+                "_execute_runner",
+                AsyncMock(return_value=SimpleNamespace(return_code=0)),
+            ) as execute_runner,
+        ):
+            result = asyncio.run(
+                agent._run_through_copilot_proxy(
+                    environment,
+                    "gpt-5.6-sol",
+                )
+            )
+
+        self.assertEqual(result.return_code, 0)
+        relay_class.assert_called_once_with(
+            upstream_base_url="http://127.0.0.1:3141/v1",
+            bind_host="172.17.0.1",
+            container_host="172.17.0.1",
+            expected_model="gpt-5.6-sol",
+            expected_reasoning_effort="medium",
+        )
+        relay.start.assert_called_once_with()
+        relay.close.assert_called_once_with()
+        stage_secret.assert_awaited_once_with(
+            environment,
+            "relay-token",
+            "copilot-proxy",
+        )
+        execute_runner.assert_awaited_once_with(
+            environment,
+            env={"OPENAI_BASE_URL": "http://172.17.0.1:32000/v1"},
+            credential="/tmp/private-relay-token",
+            credential_label="Copilot proxy",
+        )
+
+    def test_copilot_run_requires_locked_protocol(self) -> None:
+        environment = FakeEnvironment()
+        for llm_kwargs, error in (
+            (
+                {"reasoning_effort": "medium"},
+                "api_mode='chat_completions'",
+            ),
+            (
+                {"api_mode": "chat_completions"},
+                "explicit reasoning_effort",
+            ),
+        ):
+            with self.subTest(llm_kwargs=llm_kwargs):
+                agent = OpenHandsAgent.__new__(OpenHandsAgent)
+                agent.llm_kwargs = llm_kwargs
+                with self.assertRaisesRegex(RuntimeError, error):
+                    asyncio.run(
+                        agent._run_through_copilot_proxy(
+                            environment,
+                            "gpt-5.6-sol",
+                        )
+                    )
 
     def test_rejects_retargeted_content_named_base_image(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

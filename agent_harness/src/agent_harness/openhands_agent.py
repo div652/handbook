@@ -36,6 +36,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+from agent_harness.copilot_proxy import CopilotProxyRelay
 from harbor.agents.base import BaseAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
@@ -74,12 +75,26 @@ FORWARDED_ENV_VARS = (
     "GEMINI_API_KEY",
 )
 
+COPILOT_PROXY_PROVIDER = "copilot"
+DEFAULT_COPILOT_PROXY_RELAY_HOST = "172.17.0.1"
+
 
 def _forwarded_env() -> dict[str, str]:
     env = {k: v for k in FORWARDED_ENV_VARS if (v := os.environ.get(k))}
     if os.environ.get("TRAPI_AZURE_SCOPE"):
         return {"OPENAI_BASE_URL": _validated_trapi_base_url()}
     return env
+
+
+def _copilot_model_id(model_name: str) -> str | None:
+    provider, separator, model = model_name.partition("/")
+    if provider != COPILOT_PROXY_PROVIDER:
+        return None
+    if not separator or not model or "/" in model:
+        raise RuntimeError(
+            "Copilot proxy models must use the exact form copilot/<model-id>"
+        )
+    return model
 
 
 def _validated_trapi_base_url() -> str:
@@ -167,7 +182,7 @@ class OpenHandsAgent(BaseAgent):
         return "openhands-agent"
 
     def version(self) -> str | None:
-        return "0.2.0"
+        return "0.3.0"
 
     async def setup(self, environment: BaseEnvironment) -> None:
         await self._verify_content_named_base_image(environment)
@@ -222,46 +237,22 @@ class OpenHandsAgent(BaseAgent):
         config_path.write_text(json.dumps(config, indent=2))
         await environment.upload_file(str(config_path), REMOTE_CONFIG_PATH)
 
-        self.logger.info("Running OpenHands runner in-container (model=%s)", self.model_name)
-
-        remote_token_path = await self._stage_trapi_token(environment)
-        token_bootstrap = ""
-        if remote_token_path is not None:
-            quoted_token_path = shlex.quote(remote_token_path)
-            token_bootstrap = (
-                f"export OPENAI_API_KEY=\"$(cat {quoted_token_path})\" && "
-                f"rm -f {quoted_token_path} && "
-            )
-
-        # The runner writes the trajectory JSON to a dedicated file (argv[2]);
-        # the OpenHands SDK's human-readable transcript + our logs go to stdout/
-        # stderr, which we capture together in the runner log. Keeping the two
-        # streams separate is essential — the SDK prints to stdout, so a stdout
-        # redirect would corrupt the machine-readable trajectory.
-        command = (
-            f"mkdir -p {REMOTE_LOG_DIR} && "
-            f"{token_bootstrap}"
-            f"{shlex.quote(RUNNER_PYTHON)} {shlex.quote(RUNNER_PATH)} "
-            f"{shlex.quote(REMOTE_CONFIG_PATH)} {shlex.quote(REMOTE_TRAJECTORY_PATH)} "
-            f"> {REMOTE_RUNNER_LOG_PATH} 2>&1"
+        self.logger.info(
+            "Running OpenHands runner in-container (model=%s)", self.model_name
         )
-        try:
-            result = await environment.exec(
-                command=command,
-                env=_forwarded_env(),
-                timeout_sec=AGENT_EXEC_TIMEOUT,
+
+        copilot_model = _copilot_model_id(self.model_name)
+        if copilot_model is not None:
+            result = await self._run_through_copilot_proxy(
+                environment, copilot_model
             )
-        finally:
-            if remote_token_path is not None:
-                cleanup = await environment.exec(
-                    f"rm -f {shlex.quote(remote_token_path)}",
-                    timeout_sec=PROBE_TIMEOUT,
-                )
-                if cleanup.return_code != 0:
-                    raise RuntimeError(
-                        "failed to remove the staged TRAPI token file: "
-                        f"{(cleanup.stderr or '').strip()}"
-                    )
+        else:
+            result = await self._execute_runner(
+                environment,
+                env=_forwarded_env(),
+                credential=await self._stage_trapi_token(environment),
+                credential_label="TRAPI",
+            )
 
         runner_log = await self._download_quiet(
             environment, REMOTE_RUNNER_LOG_PATH, "run-openhands.log"
@@ -314,6 +305,99 @@ class OpenHandsAgent(BaseAgent):
                 f"{traj.get('error_message') or '<no error message>'}"
             )
 
+    async def _run_through_copilot_proxy(
+        self,
+        environment: BaseEnvironment,
+        model_id: str,
+    ):
+        api_mode = self.llm_kwargs.get("api_mode")
+        if api_mode != "chat_completions":
+            raise RuntimeError(
+                "Copilot proxy runs require api_mode='chat_completions'"
+            )
+        reasoning_effort = self.llm_kwargs.get("reasoning_effort")
+        if not isinstance(reasoning_effort, str) or not reasoning_effort.strip():
+            raise RuntimeError(
+                "Copilot proxy runs require an explicit reasoning_effort"
+            )
+
+        upstream_base_url = os.environ.get("COPILOT_PROXY_BASE_URL", "")
+        bind_host = os.environ.get(
+            "COPILOT_PROXY_RELAY_BIND_HOST",
+            DEFAULT_COPILOT_PROXY_RELAY_HOST,
+        )
+        container_host = os.environ.get(
+            "COPILOT_PROXY_CONTAINER_HOST",
+            bind_host,
+        )
+        relay = CopilotProxyRelay(
+            upstream_base_url=upstream_base_url,
+            bind_host=bind_host,
+            container_host=container_host,
+            expected_model=model_id,
+            expected_reasoning_effort=reasoning_effort.strip().lower(),
+        )
+        relay.start()
+        try:
+            remote_token_path = await self._stage_secret(
+                environment,
+                relay.bearer_token,
+                "copilot-proxy",
+            )
+            return await self._execute_runner(
+                environment,
+                env={"OPENAI_BASE_URL": relay.container_base_url},
+                credential=remote_token_path,
+                credential_label="Copilot proxy",
+            )
+        finally:
+            await asyncio.to_thread(relay.close)
+
+    async def _execute_runner(
+        self,
+        environment: BaseEnvironment,
+        *,
+        env: dict[str, str],
+        credential: str | None,
+        credential_label: str,
+    ):
+        token_bootstrap = ""
+        if credential is not None:
+            quoted_token_path = shlex.quote(credential)
+            token_bootstrap = (
+                f"export OPENAI_API_KEY=\"$(cat {quoted_token_path})\" && "
+                f"rm -f {quoted_token_path} && "
+            )
+
+        # The runner writes the trajectory JSON to a dedicated file (argv[2]);
+        # the OpenHands SDK's human-readable transcript + our logs go to stdout/
+        # stderr, which we capture together in the runner log.
+        command = (
+            f"mkdir -p {REMOTE_LOG_DIR} && "
+            f"{token_bootstrap}"
+            f"{shlex.quote(RUNNER_PYTHON)} {shlex.quote(RUNNER_PATH)} "
+            f"{shlex.quote(REMOTE_CONFIG_PATH)} "
+            f"{shlex.quote(REMOTE_TRAJECTORY_PATH)} "
+            f"> {REMOTE_RUNNER_LOG_PATH} 2>&1"
+        )
+        try:
+            return await environment.exec(
+                command=command,
+                env=env,
+                timeout_sec=AGENT_EXEC_TIMEOUT,
+            )
+        finally:
+            if credential is not None:
+                cleanup = await environment.exec(
+                    f"rm -f {shlex.quote(credential)}",
+                    timeout_sec=PROBE_TIMEOUT,
+                )
+                if cleanup.return_code != 0:
+                    raise RuntimeError(
+                        f"failed to remove the staged {credential_label} "
+                        f"credential file: {(cleanup.stderr or '').strip()}"
+                    )
+
     async def _stage_trapi_token(
         self, environment: BaseEnvironment
     ) -> str | None:
@@ -322,13 +406,23 @@ class OpenHandsAgent(BaseAgent):
         _validated_trapi_base_url()
         token = await asyncio.to_thread(_trapi_token)
         assert token is not None
+        return await self._stage_secret(environment, token, "trapi-token")
 
-        fd, local_path = tempfile.mkstemp(prefix=".handbook-trapi-token-")
-        remote_path = f"/tmp/.handbook-trapi-token-{secrets.token_hex(16)}"
+    async def _stage_secret(
+        self,
+        environment: BaseEnvironment,
+        value: str,
+        label: str,
+    ) -> str:
+        safe_label = re.sub(r"[^a-z0-9-]", "-", label.lower())
+        fd, local_path = tempfile.mkstemp(prefix=f".handbook-{safe_label}-")
+        remote_path = (
+            f"/tmp/.handbook-{safe_label}-{secrets.token_hex(16)}"
+        )
         remote_may_exist = False
         try:
-            with os.fdopen(fd, "w") as token_file:
-                token_file.write(token)
+            with os.fdopen(fd, "w") as secret_file:
+                secret_file.write(value)
             remote_may_exist = True
             await environment.upload_file(local_path, remote_path)
             result = await environment.exec(
@@ -337,7 +431,7 @@ class OpenHandsAgent(BaseAgent):
             )
             if result.return_code != 0:
                 raise RuntimeError(
-                    "failed to protect the staged TRAPI token file: "
+                    f"failed to protect the staged {label} credential file: "
                     f"{(result.stderr or '').strip()}"
                 )
         except BaseException:
@@ -349,12 +443,14 @@ class OpenHandsAgent(BaseAgent):
                     )
                     if cleanup.return_code != 0:
                         self.logger.warning(
-                            "Could not remove a staged TRAPI token: %s",
+                            "Could not remove a staged %s credential: %s",
+                            label,
                             (cleanup.stderr or "").strip(),
                         )
                 except Exception as cleanup_error:
                     self.logger.warning(
-                        "Could not remove a staged TRAPI token: %s",
+                        "Could not remove a staged %s credential: %s",
+                        label,
                         cleanup_error,
                     )
             raise
