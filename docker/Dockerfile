@@ -3,6 +3,7 @@ FROM python:3.13-slim
 
 ARG GIT_SHA=unknown
 ENV WORKDIR=/workdir
+ENV LITELLM_LOCAL_MODEL_COST_MAP=True
 
 RUN groupadd -g 1000 model && \
     useradd -m -u 1000 -g 1000 model && \

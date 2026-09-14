@@ -23,6 +23,9 @@ Built by the [Surge AI](https://www.surgehq.ai) evals team. To evaluate your mod
   bundled agent harness.
 - `tasks/` — one subdirectory per benchmark task.
 - `.env.example` — template for required environment variables.
+- [`BENCHMARK_RUNBOOK.md`](BENCHMARK_RUNBOOK.md) — operational instructions for
+  reproducible TRAPI runs, including authentication, model selection,
+  concurrency, retries, monitoring, recovery, and final scoring.
 
 ## Quick start
 
@@ -30,16 +33,25 @@ Built by the [Surge AI](https://www.surgehq.ai) evals team. To evaluate your mod
 # 1. Build the base image (build context is self-contained)
 docker build -t handbook_base docker/
 
-# 2. Install Harbor + the bundled agent harness into an isolated venv
-uv venv .venv --python 3.13
-uv pip install --python .venv/bin/python harbor -e ./agent_harness
+# 2. Install the locked Harbor 0.22.0 environment and bundled agent harness
+(cd agent_harness && uv lock --check)
+UV_PROJECT_ENVIRONMENT="$PWD/.venv" \
+  uv sync --project agent_harness --frozen --python 3.13
+test "$(.venv/bin/harbor --version)" = "0.22.0"
 
 # 3. Run a single task locally
 .venv/bin/harbor run -p tasks/<task_name> \
-    --agent-import-path agent_harness.openhands_agent:OpenHandsAgent \
-    -m anthropic/claude-opus-4-8 -n 1 \
+    --agent agent_harness.openhands_agent:OpenHandsAgent \
+    -m <PROVIDER>/<MODEL_DEPLOYMENT> -n 1 \
+    --n-concurrent-agents 1 \
+    --ak reasoning_effort=<CONFIRMED_REASONING_EFFORT> \
+    --ak api_mode=<CONFIRMED_API_MODE> \
     --env-file .env
 ```
+
+For TRAPI, follow [`BENCHMARK_RUNBOOK.md`](BENCHMARK_RUNBOOK.md) before running.
+Confirm the endpoint, exact deployment, reasoning effort, and API mode rather
+than reusing the example or a previous job's values.
 
 ## Leaderboard Configuration
 
@@ -49,14 +61,18 @@ with four runs per task:
 ```bash
 .venv/bin/harbor run \
     -p tasks/ \
-    --agent-import-path agent_harness.openhands_agent:OpenHandsAgent \
-    -m ... \
+    --agent agent_harness.openhands_agent:OpenHandsAgent \
+    -m <PROVIDER>/<MODEL_DEPLOYMENT> \
     -k 4 \
+    --ak reasoning_effort=<CONFIRMED_REASONING_EFFORT> \
+    --ak api_mode=<CONFIRMED_API_MODE> \
     --env-file .env
 ```
 
-For supported models, optionally set the reasoning effort with
-`--ak reasoning_effort=...`.
+The model, reasoning effort, and API mode must match the intended protocol. Do
+not omit reasoning effort when using the current OpenHands runner: its SDK
+default may differ from the provider default. Official full runs must follow
+the runbook's immutable base-image, task-snapshot, and provenance procedure.
 
 ## License
 

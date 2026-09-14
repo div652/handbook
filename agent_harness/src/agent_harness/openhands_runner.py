@@ -24,6 +24,7 @@ Contract:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -32,16 +33,47 @@ from typing import Any
 MCP_TOOL_TIMEOUT = 300
 WORKSPACE_DIR = "/tmp/openhands_workspace"
 STATE_DIR = "/tmp/openhands_state"
+LITELLM_MODEL_COST_MAP_ENV = "LITELLM_LOCAL_MODEL_COST_MAP"
+LITELLM_MODEL_COST_MAP_RESOURCE = "model_prices_and_context_window_backup.json"
+
+# LiteLLM otherwise downloads mutable model capability metadata at import time.
+os.environ[LITELLM_MODEL_COST_MAP_ENV] = "True"
 
 def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-def _resolve_llm_kwargs(config: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
-    """Split LLM kwargs into ``(constructor_kwargs, reasoning_effort)``.
+def _litellm_model_cost_map_protocol() -> dict[str, Any]:
+    from importlib.resources import files
 
-    ``reasoning_effort`` is pulled out so it can be applied post-construction. 
-    openhands.sdk otherwise won't accept `max` as a value. 
+    from litellm.litellm_core_utils.get_model_cost_map import (
+        get_model_cost_map_source_info,
+    )
+
+    source = get_model_cost_map_source_info()
+    if source.get("source") != "local" or source.get("is_env_forced") is not True:
+        raise RuntimeError(
+            "LiteLLM did not use its forced package-bundled model cost map"
+        )
+    contents = (
+        files("litellm")
+        .joinpath(LITELLM_MODEL_COST_MAP_RESOURCE)
+        .read_bytes()
+    )
+    return {
+        **source,
+        "resource": LITELLM_MODEL_COST_MAP_RESOURCE,
+        "sha256": hashlib.sha256(contents).hexdigest(),
+    }
+
+
+def _resolve_llm_kwargs(
+    config: dict[str, Any],
+) -> tuple[dict[str, Any], str | None, str | None]:
+    """Separate protocol controls from the OpenHands LLM constructor kwargs.
+
+    ``reasoning_effort`` is applied post-construction. ``api_mode`` is checked
+    against the SDK's actual request path before the first model call.
     """
     llm_kwargs = dict(config.get("llmKwargs") or {})
 
@@ -49,7 +81,140 @@ def _resolve_llm_kwargs(config: dict[str, Any]) -> tuple[dict[str, Any], str | N
     if effort is not None:
         effort = str(effort).strip().lower() or None
 
-    return llm_kwargs, effort
+    api_mode = llm_kwargs.pop("api_mode", None)
+    if api_mode is not None:
+        api_mode = str(api_mode).strip().lower() or None
+        if api_mode not in {"chat_completions", "responses"}:
+            raise ValueError(
+                "api_mode must be 'chat_completions' or 'responses'; "
+                f"got {api_mode!r}"
+            )
+
+    return llm_kwargs, effort, api_mode
+
+
+def _request_protocol(
+    llm: Any,
+    expected_api_mode: str | None,
+    expected_reasoning_effort: str | None,
+) -> dict[str, Any]:
+    """Return and validate the SDK's non-secret effective request settings."""
+    api_mode = "responses" if llm.uses_responses_api() else "chat_completions"
+    if expected_api_mode is not None and api_mode != expected_api_mode:
+        raise RuntimeError(
+            f"OpenHands selected {api_mode!r}, expected {expected_api_mode!r}; "
+            "review the pinned SDK model capabilities before running"
+        )
+
+    if api_mode == "responses":
+        selected = llm._finalize_responses_params(
+            None, [], None, None, False, False, {}
+        )[3]
+        reasoning = selected.get("reasoning")
+        top_level_effort = (
+            reasoning.get("effort") if isinstance(reasoning, dict) else None
+        )
+        top_level_parameter = "reasoning.effort"
+    else:
+        selected = llm._finalize_completion_params([], None, False, {})[3]
+        reasoning = None
+        top_level_effort = selected.get("reasoning_effort")
+        top_level_parameter = "reasoning_effort"
+
+    extra_body = selected.get("extra_body")
+    extra_body_reasoning = (
+        extra_body.get("reasoning") if isinstance(extra_body, dict) else None
+    )
+    nested_effort = (
+        extra_body_reasoning.get("effort")
+        if isinstance(extra_body_reasoning, dict)
+        else None
+    )
+    if (
+        top_level_effort is not None
+        and nested_effort is not None
+        and top_level_effort != nested_effort
+    ):
+        raise RuntimeError(
+            "OpenHands produced conflicting reasoning settings: "
+            f"{top_level_parameter}={top_level_effort!r}, "
+            f"extra_body.reasoning.effort={nested_effort!r}"
+        )
+    if nested_effort is not None:
+        observed_effort = nested_effort
+        reasoning_parameter = "extra_body.reasoning.effort"
+    else:
+        observed_effort = top_level_effort
+        reasoning_parameter = top_level_parameter
+
+    if (
+        expected_reasoning_effort is not None
+        and observed_effort != expected_reasoning_effort
+    ):
+        raise RuntimeError(
+            "OpenHands did not preserve the requested reasoning effort: "
+            f"expected {expected_reasoning_effort!r}, observed {observed_effort!r}"
+        )
+
+    tracked_parameters = (
+        "temperature",
+        "top_p",
+        "seed",
+        "max_tokens",
+        "max_completion_tokens",
+        "max_output_tokens",
+        "store",
+        "include",
+        "prompt_cache_retention",
+        "tool_choice",
+        "parallel_tool_calls",
+    )
+    return {
+        "model": llm.model,
+        "base_url": llm.base_url,
+        "api_mode": api_mode,
+        "reasoning_parameter": reasoning_parameter,
+        "reasoning_effort": observed_effort,
+        "reasoning_configuration": {
+            "reasoning": reasoning,
+            "reasoning_effort": selected.get("reasoning_effort"),
+            "extra_body_reasoning": extra_body_reasoning,
+            "thinking": selected.get("thinking"),
+        },
+        "sdk_controls": {
+            "drop_params": getattr(llm, "drop_params", None),
+            "modify_params": getattr(llm, "modify_params", None),
+            "stream": getattr(llm, "stream", None),
+            "native_tool_calling": getattr(llm, "native_tool_calling", None),
+            "timeout": getattr(llm, "timeout", None),
+            "num_retries": getattr(llm, "num_retries", None),
+        },
+        "parameters": {
+            name: {"present": name in selected, "value": selected.get(name)}
+            for name in tracked_parameters
+        },
+    }
+
+
+def _protocol_aware_condenser_llm_class(llm_class: type) -> type:
+    class ProtocolAwareCondenserLLM(llm_class):
+        route_completion_via_responses: bool = False
+
+        def completion(self, messages, tools=None, **kwargs):
+            if self.route_completion_via_responses:
+                return self.responses(messages=messages, tools=tools, **kwargs)
+            return super().completion(messages=messages, tools=tools, **kwargs)
+
+        async def acompletion(self, messages, tools=None, **kwargs):
+            if self.route_completion_via_responses:
+                return await self.aresponses(
+                    messages=messages, tools=tools, **kwargs
+                )
+            return await super().acompletion(
+                messages=messages, tools=tools, **kwargs
+            )
+
+    return ProtocolAwareCondenserLLM
 
 
 def _resolve_llm_auth(model_name: str) -> tuple[str, str | None, str | None]:
@@ -156,6 +321,8 @@ def _raise_tool_observation_limit() -> None:
 
 
 def run(config: dict[str, Any]) -> dict[str, Any]:
+    os.environ[LITELLM_MODEL_COST_MAP_ENV] = "True"
+
     from pydantic import SecretStr
 
     from openhands.sdk import (
@@ -174,12 +341,12 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
 
     model_name = config["model"]
     litellm_model, api_key, base_url = _resolve_llm_auth(model_name)
-    llm_kwargs, reasoning_effort = _resolve_llm_kwargs(config)
+    llm_kwargs, reasoning_effort, api_mode = _resolve_llm_kwargs(config)
 
     # Opt-in per-call request logging (--ak log_completions=true). Point the
     # folder at the trajectory's log dir so it's downloaded with the trial. Each
-    # logged payload records the kwargs actually sent to the model (e.g.
-    # reasoning_effort), giving a verifiable record of what was requested.
+    # Logged payloads record the SDK request kwargs passed to LiteLLM, providing
+    # a verifiable record of the requested reasoning and sampling settings.
     if llm_kwargs.pop("log_completions", False):
         log_root = config.get("logDir") or WORKSPACE_DIR
         llm_kwargs["log_completions"] = True
@@ -213,23 +380,54 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
     # a summarized history instead of hard-erroring the trial. The summarizer runs
     # on the same model/proxy as the agent (worldbench summarizes with its agent
     # model too); a separate LLM instance just keeps its metrics distinct.
-    condenser_llm = LLM(
+    condenser_llm_class = _protocol_aware_condenser_llm_class(LLM)
+    condenser_llm = condenser_llm_class(
         usage_id="condenser",
         model=litellm_model,
         api_key=SecretStr(api_key) if api_key else None,
         base_url=base_url,
         timeout=600,
+        route_completion_via_responses=llm.uses_responses_api(),
         **llm_kwargs,
     )
 
     if reasoning_effort is not None:
-        if litellm_model.startswith("anthropic/"):
+        if litellm_model.startswith(("anthropic/", "openai/")):
             llm.reasoning_effort = reasoning_effort
             condenser_llm.reasoning_effort = reasoning_effort
         else:
+            llm.reasoning_effort = None
+            condenser_llm.reasoning_effort = None
             rb = {"reasoning": {"effort": reasoning_effort}}
             llm.litellm_extra_body = {**llm.litellm_extra_body, **rb}
             condenser_llm.litellm_extra_body = {**condenser_llm.litellm_extra_body, **rb}
+
+    request_protocol = _request_protocol(llm, api_mode, reasoning_effort)
+    condenser_protocol = _request_protocol(
+        condenser_llm, api_mode, reasoning_effort
+    )
+    request_protocol["condenser_api_mode"] = condenser_protocol["api_mode"]
+    request_protocol["condenser_reasoning_parameter"] = condenser_protocol[
+        "reasoning_parameter"
+    ]
+    request_protocol["condenser_completion_adapter"] = (
+        condenser_llm.route_completion_via_responses
+    )
+    request_protocol["litellm_model_cost_map"] = (
+        _litellm_model_cost_map_protocol()
+    )
+    protocol_path = os.path.join(
+        config.get("logDir") or WORKSPACE_DIR, "request_protocol.json"
+    )
+    os.makedirs(os.path.dirname(protocol_path), exist_ok=True)
+    with open(protocol_path, "w") as protocol_file:
+        json.dump(request_protocol, protocol_file, indent=2)
+    _log(
+        "validated request protocol "
+        f"(api_mode={request_protocol['api_mode']}, "
+        f"reasoning_parameter={request_protocol['reasoning_parameter']}, "
+        f"reasoning_effort={request_protocol['reasoning_effort']})"
+    )
 
     # Pass the office-assistant prompt as `system_prompt` (verbatim full
     # replacement) rather than an AgentContext suffix — otherwise OpenHands'
@@ -317,6 +515,7 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
         "output_tokens": usage["output_tokens"],
         "cache_tokens": usage["cache_tokens"],
         "cost_usd": usage["cost_usd"],
+        "request_protocol": request_protocol,
     }
 
 

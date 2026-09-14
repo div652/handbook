@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Harbor agent harness for Syntara tasks"
 requires-python = ">=3.12"
 dependencies = [
-    "harbor",
+    "harbor==0.22.0",
     "deepdiff",
     "litellm",
     # NOTE: openhands-sdk is NOT a host dep. openhands_agent.py runs the agent
