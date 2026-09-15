@@ -72,8 +72,13 @@ def _current_user() -> JiraUser:
 def _resolve_user_ref(value: str | dict[str, Any] | JiraUser) -> JiraUser:
     if isinstance(value, str):
         return _require_user(value)
-    user = JiraUser.model_validate(value)
-    return _require_user(user.accountId)
+    if isinstance(value, dict):
+        # The Jira REST shape is {"accountId": ...}; the stored user supplies the other fields.
+        account_id = value.get("accountId")
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise ValueError("User reference object must include an `accountId` string")
+        return _require_user(account_id)
+    return _require_user(JiraUser.model_validate(value).accountId)
 
 
 def _linked_issue(issue: JiraIssue) -> JiraLinkedIssue:

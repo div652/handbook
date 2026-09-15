@@ -134,11 +134,11 @@ def test_drops_harness_internal_vars():
     polluted = _polluted_environ()
     polluted.update(
         {
-            "WORLDBENCH_ROOT": "/app",
-            "WORLDBENCH_SEED": "deadbeef",
-            "WORLDBENCH_TOOL_SETS": "core_debug",
+            "HANDBOOK_ROOT": "/app",
+            "HANDBOOK_SEED": "deadbeef",
+            "HANDBOOK_TOOL_SETS": "core_debug",
             # A harness var nobody listed explicitly — the prefix sweep must catch it.
-            "WORLDBENCH_SOME_FUTURE_VAR": "/app/whatever",
+            "HANDBOOK_SOME_FUTURE_VAR": "/app/whatever",
             "INPUTDIR": "/app/setup_data/entities/core",
             "OUTPUTDIR": "/app/output_data/core",
             "BUNDLE_OUTPUT_DIR": "/app/output_data/services",
@@ -151,10 +151,10 @@ def test_drops_harness_internal_vars():
     with mock.patch.dict(os.environ, polluted, clear=True):
         env = sandbox._agent_env()
     for var in (
-        "WORLDBENCH_ROOT",
-        "WORLDBENCH_SEED",
-        "WORLDBENCH_TOOL_SETS",
-        "WORLDBENCH_SOME_FUTURE_VAR",
+        "HANDBOOK_ROOT",
+        "HANDBOOK_SEED",
+        "HANDBOOK_TOOL_SETS",
+        "HANDBOOK_SOME_FUTURE_VAR",
         "INPUTDIR",
         "OUTPUTDIR",
         "BUNDLE_OUTPUT_DIR",
@@ -168,13 +168,14 @@ def test_drops_harness_internal_vars():
     assert not any("/app" in v for v in env.values()), env
 
 
-def test_preserves_clock_var():
-    # The fake clock must reach the agent's shell; it is NOT a harness leak.
+def test_preserves_scenario_time_var():
+    # The task's scenario date is deliberately visible to the agent's shell;
+    # it is not a harness leak.
     polluted = _polluted_environ()
-    polluted["WORLDBENCH_CURRENT_TIME"] = "2026-01-02T03:04:05Z"
+    polluted["HANDBOOK_CURRENT_TIME"] = "2026-01-02T03:04:05Z"
     with mock.patch.dict(os.environ, polluted, clear=True):
         env = sandbox._agent_env()
-    assert env["WORLDBENCH_CURRENT_TIME"] == "2026-01-02T03:04:05Z"
+    assert env["HANDBOOK_CURRENT_TIME"] == "2026-01-02T03:04:05Z"
 
 
 def test_privilege_drop_kwargs_noop_when_not_root():

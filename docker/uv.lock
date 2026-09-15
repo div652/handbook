@@ -23,8 +23,8 @@ members = [
     "read-file-safe",
     "shopify",
     "slack-mock",
-    "syntara",
-    "worldbench-syntara",
+    "handbook",
+    "handbook-runtime",
 ]
 
 [[package]]
@@ -1858,9 +1858,9 @@ wheels = [
 ]
 
 [[package]]
-name = "syntara"
+name = "handbook"
 version = "0.0.1"
-source = { editable = "packages/syntara" }
+source = { editable = "packages/handbook" }
 dependencies = [
     { name = "core" },
     { name = "fastmcp" },
@@ -2076,7 +2076,7 @@ wheels = [
 ]
 
 [[package]]
-name = "worldbench-syntara"
+name = "handbook-runtime"
 version = "0.0.1"
 source = { virtual = "." }
 

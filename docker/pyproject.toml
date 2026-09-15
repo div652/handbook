@@ -1,7 +1,7 @@
 [project]
-name = "worldbench-syntara"
+name = "handbook-runtime"
 version = "0.0.1"
-description = "Worldbench Syntara monorepo"
+description = "Handbook MCP runtime"
 requires-python = ">=3.13"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
@@ -40,7 +40,7 @@ workspace.members = [
   "packages/read_file_safe",
   "packages/shopify",
   "packages/slack",
-  "packages/syntara",
+  "packages/handbook",
 ]
 
 [tool.ruff]
@@ -156,8 +156,8 @@ lint.isort.known-first-party = [
   "read_file_safe",
   "shopify",
   "slack",
-  # Temporary syntara→core compatibility shim; REMOVE after 2026-06-18.
-  "syntara",
+  # Temporary handbook→core compatibility shim; REMOVE after 2026-06-18.
+  "handbook",
 ]
 
 [tool.pyproject-fmt]

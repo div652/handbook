@@ -29,7 +29,7 @@ A mock email server with a realistic closed-world simulation. The agent has one 
 
 ## Toolsets
 
-28 tools total. Toolsets map to `WORLDBENCH_TOOL_SETS` values (prefixed form — e.g., `google_mail_core`).
+28 tools total. Toolsets map to `HANDBOOK_TOOL_SETS` values (prefixed form — e.g., `google_mail_core`).
 
 | Toolset | Tools | Description |
 |---------|-------|-------------|

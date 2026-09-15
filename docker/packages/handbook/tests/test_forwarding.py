@@ -1,6 +1,6 @@
-"""The syntara shim forwards every tool to core (with deprecation logging).
+"""The handbook shim forwards every tool to core (with deprecation logging).
 
-REMOVE with the rest of the syntara package after 2026-06-18.
+REMOVE with the rest of the handbook package after 2026-06-18.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import logging
 
 import pytest
 
-import syntara.tools as tools
+import handbook.tools as tools
 from core.tools import sandbox
 
 
@@ -78,13 +78,13 @@ async def test_executepython_handles_large_script_over_stdin(workdir):
 
 @pytest.mark.asyncio
 async def test_forwarded_call_logs_deprecation(workdir, caplog):
-    with caplog.at_level(logging.WARNING, logger="syntara.compat"):
+    with caplog.at_level(logging.WARNING, logger="handbook.compat"):
         await tools.executeBash("true")
-    assert any("DEPRECATED syntara compat" in r.message and "executeBash" in r.message for r in caplog.records)
+    assert any("DEPRECATED handbook compat" in r.message and "executeBash" in r.message for r in caplog.records)
 
 
 @pytest.mark.asyncio
 async def test_executepython_logs_under_its_own_name(workdir, caplog):
-    with caplog.at_level(logging.WARNING, logger="syntara.compat"):
+    with caplog.at_level(logging.WARNING, logger="handbook.compat"):
         await tools.executePython("pass")
     assert any("executePython" in r.message for r in caplog.records)

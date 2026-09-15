@@ -107,20 +107,6 @@ class McpConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _service_argv(step: HookStep, command_prefix: list[str] | None) -> list[str]:
-    """Assemble the argv for a run step, optionally prefixed.
-
-    *command_prefix* (e.g. ``["faketime", "2025-01-15 09:00:00"]``) is prepended
-    to the step's command so the service runs under a wrapper. ``None`` or an
-    empty list returns the bare argv. Factored out so the prefixing is unit
-    testable without launching a process.
-    """
-    argv = [resolve_command(step.command), *step.args]
-    if command_prefix:
-        return [*command_prefix, *argv]
-    return argv
-
-
 def _bare_toolsets(pkg_name: str, pkg_toolset_keys: set[str], requested: list[str]) -> set[str]:
     """Resolve *requested* toolset names to bare names for *pkg_name*.
 
@@ -253,17 +239,14 @@ class McpService:
         env: dict[str, str],
         port: int,
         proxy_token: str,
-        command_prefix: list[str] | None = None,
     ) -> subprocess.Popen | None:
         """Start the service as an HTTP subprocess on the given port.
 
-        Uses the last ``run`` step as the server command. *command_prefix*, when
-        given, wraps that command (e.g. ``["faketime", "<spec>"]``) so the
-        service — and everything it spawns — runs under the wrapper.
+        Uses the last ``run`` step as the server command.
         Returns the Popen handle, or None if the service failed to start.
         """
         step = self.config.run[-1]
-        run_args = _service_argv(step, command_prefix)
+        run_args = [resolve_command(step.command), *step.args]
         merged_env = {
             **env,
             **step.env,

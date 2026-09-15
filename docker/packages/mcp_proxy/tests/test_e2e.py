@@ -82,7 +82,7 @@ _FIXTURE_PACKAGES = (
 
 
 def _every_namespaced_toolset() -> str:
-    """Build a WORLDBENCH_TOOL_SETS value that exposes every tool from every
+    """Build a HANDBOOK_TOOL_SETS value that exposes every tool from every
     server in :data:`_FIXTURE_PACKAGES` (state, grading, etc. included).
     """
     out: list[str] = []
@@ -102,10 +102,10 @@ def proxy_endpoints(seeded_inputdir):
 
     env = {
         **os.environ,
-        "WORLDBENCH_ROOT": str(REPO_ROOT),
+        "HANDBOOK_ROOT": str(REPO_ROOT),
         "INPUTDIR": str(seeded_inputdir),
-        "WORLDBENCH_METHOD": "http",
-        "WORLDBENCH_TOOL_SETS": _every_namespaced_toolset(),
+        "HANDBOOK_METHOD": "http",
+        "HANDBOOK_TOOL_SETS": _every_namespaced_toolset(),
         "PORT": str(port),
         "VIEWER_PORT": str(viewer_port),
     }
@@ -220,11 +220,11 @@ def stdio_proxy(seeded_inputdir):
 
     env = {
         **os.environ,
-        "WORLDBENCH_ROOT": str(REPO_ROOT),
+        "HANDBOOK_ROOT": str(REPO_ROOT),
         "INPUTDIR": str(seeded_inputdir),
         "VIEWER_PORT": str(viewer_port),
-        "WORLDBENCH_TOOL_SETS": "google_mail_read",
-        # No WORLDBENCH_METHOD → defaults to "stdio"
+        "HANDBOOK_TOOL_SETS": "google_mail_read",
+        # No HANDBOOK_METHOD → defaults to "stdio"
     }
 
     proc = subprocess.Popen(
@@ -512,7 +512,7 @@ def namespaced_toolset_proxy_url(seeded_inputdir):
 
     This fixture uses that exact form.  start.sh also supports the multi-flag
     variant (--tool-sets A --tool-sets B) for CLI convenience; both are tested
-    here via WORLDBENCH_TOOL_SETS being set correctly.
+    here via HANDBOOK_TOOL_SETS being set correctly.
 
     Verifies:
     - Namespaced names (pkg_toolset) are resolved to the correct bare toolset
@@ -524,9 +524,9 @@ def namespaced_toolset_proxy_url(seeded_inputdir):
 
     env = {
         **os.environ,
-        "WORLDBENCH_ROOT": str(REPO_ROOT),
+        "HANDBOOK_ROOT": str(REPO_ROOT),
         "INPUTDIR": str(seeded_inputdir),
-        "WORLDBENCH_METHOD": "http",
+        "HANDBOOK_METHOD": "http",
         "PORT": str(port),
         "VIEWER_PORT": str(viewer_port),
     }
@@ -635,11 +635,11 @@ def outputdir_proxy(seeded_inputdir, tmp_path_factory):
 
     env = {
         **os.environ,
-        "WORLDBENCH_ROOT": str(REPO_ROOT),
+        "HANDBOOK_ROOT": str(REPO_ROOT),
         "INPUTDIR": str(seeded_inputdir),
         "OUTPUTDIR": str(outputdir),
-        "WORLDBENCH_METHOD": "http",
-        "WORLDBENCH_TOOL_SETS": _every_namespaced_toolset(),
+        "HANDBOOK_METHOD": "http",
+        "HANDBOOK_TOOL_SETS": _every_namespaced_toolset(),
         "PORT": str(port),
         "VIEWER_PORT": str(viewer_port),
     }

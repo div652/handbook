@@ -324,8 +324,8 @@
         "ts": "1774281600.000310",
         "user": "UCOORD",
         "text": "NEW HIRE: Rafael Mendez, Admissions Counselor, Admissions, Downtown Campus, Start Date: 03/26/2026, Jira: HR-4",
-        "reply_count": 3,
-        "latest_reply": "1775748600.000312",
+        "reply_count": 2,
+        "latest_reply": "1774648800.000312",
         "reply_users": [
           "UCOORD",
           "UPARK"
@@ -344,13 +344,6 @@
         "ts": "1774648800.000312",
         "user": "UCOORD",
         "text": "Orientation completed 3/27. I-9 Section 2 received 3/27. Handbook signed 3/26.",
-        "thread_ts": "1774281600.000310"
-      },
-      {
-        "type": "message",
-        "ts": "1775748600.000312",
-        "user": "UCOORD",
-        "text": "Day 15 reminder: Template 8 (Benefits Enrollment Reminder) sent to Rafael Mendez today. Deadline 04/24/2026. Logged in onboarding_checklist.",
         "thread_ts": "1774281600.000310"
       },
       {

@@ -1,4 +1,4 @@
-"""Legacy ``syntara`` tool surface, forwarding to ``core``.
+"""Legacy ``handbook`` tool surface, forwarding to ``core``.
 
 Every tool here delegates to the corresponding ``core`` tool (logging a
 deprecation warning on each call). Two names differ from core:
@@ -7,8 +7,8 @@ deprecation warning on each call). Two names differ from core:
 * ``executePython`` → removed from core; reimplemented here as
   ``bash("python3 -c <code>")`` so pre-rename callers keep working.
 
-REMOVE with the rest of the ``syntara`` package after 2026-06-18 (see
-``syntara._compat``).
+REMOVE with the rest of the ``handbook`` package after 2026-06-18 (see
+``handbook._compat``).
 """
 
 from typing import Annotated, Any
@@ -26,7 +26,7 @@ from core.tools import readPDF as _readPDF
 from core.tools import writeFile as _writeFile
 from core.tools.bash import bash as _bash
 from core.tools.sandbox import DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, run_in_sandbox
-from syntara._compat import _log_forward, forwarding
+from handbook._compat import _log_forward, forwarding
 
 echo = forwarding("echo", _echo)
 listFiles = forwarding("listFiles", _listFiles)

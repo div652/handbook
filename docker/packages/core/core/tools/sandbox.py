@@ -16,18 +16,7 @@ WORKDIR: str = "/workdir"
 # authenticate inbound requests on non-MCP routes. The credential-name filter
 # in mcp_proxy does NOT catch this, so we strip it here to avoid leaking it to
 # the agent's bash/python.
-#
-# FAKETIME_SHARED is exported by libfaketime when the proxy runs services under
-# the `faketime` wrapper for --current-time. It names a /dev/shm semaphore +
-# shared-memory segment that libfaketime created as root (mode 0600), used for
-# cross-process monotonic-time coordination. The agent command runs as the
-# model uid, so a child it spawns (bash) re-initializes libfaketime,
-# can't open that root-owned semaphore, and *hangs* on the very first clock read
-# (`date`, time.time(), ...). Stripping it makes libfaketime run per-process —
-# the clock is still faked (LD_PRELOAD + FAKETIME are kept); we only lose the
-# cross-process "time never goes backward" guarantee, which a sandbox doesn't
-# need.
-_PROXY_INTERNAL_ENV_KEYS = frozenset({"MCP_PROXY_TOKEN", "FAKETIME_SHARED"})
+_PROXY_INTERNAL_ENV_KEYS = frozenset({"MCP_PROXY_TOKEN"})
 
 # Stripped from every agent-spawned subprocess so the server venv (/opt/venv)
 # and repo (/app) can't leak into the model's shell.
@@ -47,13 +36,14 @@ _AGENT_ENV_DROP = (
 # legitimate use for them, and leaking them advertises the eval layout (paths
 # like INPUTDIR=/app/setup_data/…), the seed, and the viewer/proxy ports even
 # though those resources are themselves locked down. Matched by PREFIX so a
-# newly-added WORLDBENCH_*/BUNDLE* var is dropped automatically rather than
+# newly-added HANDBOOK_*/BUNDLE* var is dropped automatically rather than
 # silently leaking until someone remembers to list it.
-_AGENT_ENV_DROP_PREFIXES = ("WORLDBENCH_", "BUNDLE")
+_AGENT_ENV_DROP_PREFIXES = ("HANDBOOK_", "BUNDLE")
 # Exact harness vars without a shared prefix.
 _AGENT_ENV_DROP_EXACT = ("INPUTDIR", "OUTPUTDIR", "PORT", "VIEWER_PORT")
-# Survives the prefix sweep: the fake clock must reach the agent's shell.
-_AGENT_ENV_KEEP = frozenset({"WORLDBENCH_CURRENT_TIME"})
+# Survives the prefix sweep: the task's scenario date (task.toml env) is
+# deliberately visible to the agent's shell.
+_AGENT_ENV_KEEP = frozenset({"HANDBOOK_CURRENT_TIME"})
 
 
 def _sanitize_path(path: str) -> str:

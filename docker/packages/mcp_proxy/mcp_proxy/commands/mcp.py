@@ -44,7 +44,6 @@ import logging
 import os
 import re
 import secrets
-import shutil
 import signal
 import socket
 import subprocess
@@ -53,7 +52,6 @@ import threading
 import time
 import traceback
 from collections.abc import Iterable
-from datetime import UTC, datetime
 from pathlib import Path
 
 from fastmcp import FastMCP
@@ -70,50 +68,6 @@ logger = logging.getLogger("mcp_proxy")
 # from tools/list — the proxy aggregate export_state / import_state are
 # infrastructure for the grading harness, not for agents to discover and use.
 HIDDEN_FROM_LISTING_TAG = "mcp_proxy:hidden_from_listing"
-
-# ---------------------------------------------------------------------------
-# Fake clock (--current-time)
-# ---------------------------------------------------------------------------
-
-
-def to_faketime_spec(current_time: str) -> str:
-    """Convert an RFC3339/ISO-8601 timestamp to the absolute timestamp string
-    the ``faketime`` wrapper expects, normalized to UTC.
-
-    A naive timestamp (no tz offset) is assumed to be UTC. Raises ``ValueError``
-    on an unparseable string. Combined with ``TZ=UTC`` in the service env, the
-    returned ``"%Y-%m-%d %H:%M:%S"`` string anchors the faked clock to the
-    intended instant and lets it advance at real wall-clock rate.
-    """
-    dt = datetime.fromisoformat(current_time)  # `Z` accepted on Python 3.11+
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def resolve_faketime_launch(current_time: str) -> tuple[list[str], dict[str, str]]:
-    """Resolve ``--current-time`` into a command prefix and env overrides.
-
-    Returns ``(["faketime", "<spec>"], {"TZ": "UTC"})``. Exits the process
-    (``SystemExit``) if the timestamp is unparseable or the ``faketime`` wrapper
-    is not installed — a fake clock that silently falls back to real time would
-    break determinism, so we fail loudly instead.
-    """
-    try:
-        spec = to_faketime_spec(current_time)
-    except ValueError as exc:
-        logger.error("Invalid --current-time %r: %s", current_time, exc)
-        sys.exit(1)
-
-    if shutil.which("faketime") is None:
-        logger.error(
-            "--current-time requires the 'faketime' wrapper, which is not on PATH. "
-            "Install the faketime package (it ships the libfaketime .so)."
-        )
-        sys.exit(1)
-
-    return ["faketime", spec], {"TZ": "UTC"}
-
 
 # ---------------------------------------------------------------------------
 # Crash / signal handlers
@@ -239,11 +193,11 @@ def discover_mcp_servers(
     return result
 
 
-# ``syntara`` is the temporary backward-compat shim that forwards to ``core``
+# ``handbook`` is the temporary backward-compat shim that forwards to ``core``
 # (REMOVE after 2026-06-18). It and ``core`` expose the same underlying tools
 # under different names; mounting both at once is redundant rather than fatal,
-# since syntara is implemented on top of core, so we warn and let both run.
-COMPAT_SHIM_NAME = "syntara"
+# since handbook is implemented on top of core, so we warn and let both run.
+COMPAT_SHIM_NAME = "handbook"
 COMPAT_SHIM_TARGET = "core"
 
 
@@ -254,7 +208,7 @@ def _warn_core_and_compat_shim(servers: list[McpService]) -> None:
             "requested tool sets include both '%s' and the legacy '%s' compatibility shim, "
             "which forwards to '%s'. Both will be mounted, exposing the same underlying tools "
             "under different names. Prefer a single surface: drop the legacy '%s_*' tool sets "
-            "(preferred) or the '%s_*' ones in WORLDBENCH_TOOL_SETS.",
+            "(preferred) or the '%s_*' ones in HANDBOOK_TOOL_SETS.",
             COMPAT_SHIM_TARGET,
             COMPAT_SHIM_NAME,
             COMPAT_SHIM_TARGET,
@@ -348,7 +302,7 @@ def _build_subprocess_env(
     env is forwarded unless its name looks credential-shaped. Services that need
     a real credential must declare it by exact name in their mcp.json ``secrets`` field.
 
-    WORLDBENCH_ROOT is set to ``base_dir`` for every subprocess.
+    HANDBOOK_ROOT is set to ``base_dir`` for every subprocess.
 
     INPUTDIR keeps today's legacy contract: namespaced to
     ``<INPUTDIR>/<server_name>`` when set, else ``<base_dir>/<server_name>``.
@@ -405,7 +359,7 @@ def _build_subprocess_env(
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle_output_dir.mkdir(parents=True, exist_ok=True)
 
-    env["WORLDBENCH_ROOT"] = str(base_dir)
+    env["HANDBOOK_ROOT"] = str(base_dir)
     env["INPUTDIR"] = str(input_dir)
     env["OUTPUTDIR"] = str(output_dir)
     env["BUNDLE_OUTPUT_DIR"] = str(bundle_output_dir)
@@ -498,18 +452,12 @@ def build_proxy_app(
     base_dir: Path,
     run_setup_hooks: bool = False,
     tool_sets: list[str] | None = None,
-    command_prefix: list[str] | None = None,
-    service_env_overrides: dict[str, str] | None = None,
 ) -> FastMCP:
     """Discover sub-servers, start them as HTTP processes, and return
     an aggregating FastMCP proxy app.
 
     Also populates the global ``service_registry`` with name → port mappings
     and sets ``proxy_token`` for viewer authentication.
-
-    *command_prefix* and *service_env_overrides*, when set, wrap and augment
-    each service's launch — used by ``--current-time`` to run services under
-    the ``faketime`` wrapper with ``TZ=UTC``.
     """
     global proxy_token
 
@@ -540,13 +488,8 @@ def build_proxy_app(
             logger.error("Pre-run step failed for %s, aborting", cfg.name)
             sys.exit(1)
 
-        # Apply the fake clock only to the long-running service (and its
-        # children, e.g. the syntara bash/python sandboxes) — not to the
-        # install/setup/pre-run hooks above.
-        service_env = {**env, **service_env_overrides} if service_env_overrides else env
-
         port = _find_free_port()
-        proc = cfg.start_service(service_env, port, proxy_token, command_prefix=command_prefix)
+        proc = cfg.start_service(env, port, proxy_token)
         if proc is None:
             startup_failures.append(f"{cfg.name} (failed to launch process)")
             continue
@@ -762,7 +705,7 @@ def _read_build_sha() -> str:
     return "dev"
 
 
-def run(method: str | None = None, port: int | None = None, current_time: str | None = None) -> None:
+def run(method: str | None = None, port: int | None = None) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="[%(name)s] %(message)s",
@@ -774,28 +717,18 @@ def run(method: str | None = None, port: int | None = None, current_time: str | 
     build_sha = _read_build_sha()
     logger.info("build %s", build_sha)
 
-    base_dir = Path(os.environ.get("WORLDBENCH_ROOT", os.getcwd())).resolve()
-    packages_root = Path(os.environ.get("WORLDBENCH_PACKAGES_ROOT") or (base_dir / "packages"))
-    tool_sets = os.environ.get("WORLDBENCH_TOOL_SETS", "").split()
-    method = method or os.environ.get("WORLDBENCH_METHOD", "stdio")
+    base_dir = Path(os.environ.get("HANDBOOK_ROOT", os.getcwd())).resolve()
+    packages_root = Path(os.environ.get("HANDBOOK_PACKAGES_ROOT") or (base_dir / "packages"))
+    tool_sets = os.environ.get("HANDBOOK_TOOL_SETS", "").split()
+    method = method or os.environ.get("HANDBOOK_METHOD", "stdio")
     viewer_port = os.environ.get("VIEWER_PORT")
     mcp_port = port or int(os.environ.get("PORT", "8000"))
-
-    command_prefix: list[str] | None = None
-    service_env_overrides: dict[str, str] | None = None
-    # `is not None` (not truthiness): an explicitly-passed empty --current-time
-    # is a bad value that must fail loudly, not silently fall back to real time.
-    if current_time is not None:
-        command_prefix, service_env_overrides = resolve_faketime_launch(current_time)
-        logger.info("Faking clock for all services: faketime %s (TZ=UTC)", command_prefix[1])
 
     app = build_proxy_app(
         packages_root=packages_root,
         base_dir=base_dir,
         run_setup_hooks=True,
         tool_sets=tool_sets,
-        command_prefix=command_prefix,
-        service_env_overrides=service_env_overrides,
     )
 
     from starlette.requests import Request

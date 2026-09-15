@@ -57,6 +57,46 @@ async def test_create_issue_rejects_malformed_additional_fields_and_rolls_back()
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("additional_fields", "message"),
+    [
+        ({"labels": "urgent"}, "list of strings"),
+        ({"duedate": "2026-04-10"}, "Unsupported create_issue"),
+        ({"parent": "MOCK-404"}, "Parent issue MOCK-404 not found"),
+        ({"priority": "Launch Blocker"}, "Unknown priority name"),
+        ({"priority": {"name": "Launch Blocker"}}, "Unknown priority name"),
+    ],
+)
+async def test_create_issue_validates_all_fields_before_inserting(
+    additional_fields: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        await create_issue(
+            "MOCK", "Must not be partly created", "Task", additional_fields=json.dumps(additional_fields)
+        )
+
+    assert (await search("project = MOCK", limit=10))["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_create_issue_accepts_priority_names_and_explicit_custom_priorities() -> None:
+    await create_issue("MOCK", "Known priority", "Task", additional_fields=json.dumps({"priority": "high"}))
+    await create_issue(
+        "MOCK",
+        "Custom priority",
+        "Task",
+        additional_fields=json.dumps({"priority": {"id": "7", "name": "Launch Blocker"}}),
+    )
+    await create_issue(
+        "MOCK", "Seeded custom name", "Task", additional_fields=json.dumps({"priority": "Launch Blocker"})
+    )
+
+    assert (await get_issue("MOCK-1", fields="priority"))["fields"]["priority"] == {"id": "2", "name": "High"}
+    assert (await get_issue("MOCK-2", fields="priority"))["fields"]["priority"] == {"id": "7", "name": "Launch Blocker"}
+    assert (await get_issue("MOCK-3", fields="priority"))["fields"]["priority"] == {"id": "7", "name": "Launch Blocker"}
+
+
+@pytest.mark.asyncio
 async def test_create_issue_uses_max_existing_issue_key_suffix() -> None:
     await create_issue("MOCK", "First", "Task")
     state = await export_state()
@@ -160,6 +200,36 @@ async def test_update_issue_rejects_invalid_field_shapes_and_rolls_back() -> Non
     issue = await get_issue("MOCK-1", fields="summary,labels")
     assert issue["fields"]["summary"] == "Original summary"
     assert issue["fields"]["labels"] == []
+
+
+@pytest.mark.asyncio
+async def test_update_issue_resolves_priority_names_to_their_own_ids() -> None:
+    await create_issue("MOCK", "Original summary", "Task")
+
+    updated = await update_issue("MOCK-1", json.dumps({"priority": "Highest"}))
+
+    assert updated["fields"]["priority"] == {"id": "1", "name": "Highest"}
+
+
+@pytest.mark.asyncio
+async def test_update_issue_rejects_unknown_priority_name_and_rolls_back() -> None:
+    await create_issue("MOCK", "Original summary", "Task")
+
+    with pytest.raises(ValueError, match="Unknown priority name"):
+        await update_issue("MOCK-1", json.dumps({"summary": "Changed", "priority": "Launch Blocker"}))
+
+    issue = await get_issue("MOCK-1", fields="summary,priority")
+    assert issue["fields"]["summary"] == "Original summary"
+    assert issue["fields"]["priority"] == {"id": "3", "name": "Medium"}
+
+
+@pytest.mark.asyncio
+async def test_update_issue_accepts_an_account_id_object_assignee() -> None:
+    await create_issue("MOCK", "Unassigned", "Task")
+
+    updated = await update_issue("MOCK-1", json.dumps({"assignee": {"accountId": "user-1"}}))
+
+    assert updated["fields"]["assignee"]["accountId"] == "user-1"
 
 
 @pytest.mark.asyncio

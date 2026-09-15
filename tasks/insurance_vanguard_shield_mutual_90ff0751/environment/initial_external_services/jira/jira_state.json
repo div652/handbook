@@ -1059,6 +1059,16 @@
         "name": "In Progress",
         "colorName": "yellow"
       }
+    },
+    "5": {
+      "id": "5",
+      "name": "Rejected",
+      "statusCategory": {
+        "id": 3,
+        "key": "done",
+        "name": "Done",
+        "colorName": "green"
+      }
     }
   },
   "workflow": {
@@ -1104,6 +1114,11 @@
         "id": "8",
         "name": "To Awaiting Controller Review",
         "to": "Awaiting Controller Review"
+      },
+      {
+        "id": "17",
+        "name": "Reject",
+        "to": "Rejected"
       }
     ],
     "Pinned": [

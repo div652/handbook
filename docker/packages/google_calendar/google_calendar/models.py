@@ -462,8 +462,9 @@ class EventInput(BaseModel):
                 start_value = start_value.replace(tzinfo=UTC)
             if end_value.tzinfo is None:
                 end_value = end_value.replace(tzinfo=UTC)
-        if end_value <= start_value:
-            raise ValueError("Event end must be after start")
+        # Zero-duration events are allowed (real Google Calendar accepts them).
+        if end_value < start_value:
+            raise ValueError("Event end must not be before start")
 
         return self
 

@@ -182,9 +182,20 @@ def test_event_rejects_end_before_start():
         Event.model_validate(
             _minimal_event(
                 start={"dateTime": "2025-06-01T10:00:00Z"},
-                end={"dateTime": "2025-06-01T10:00:00Z"},
+                end={"dateTime": "2025-06-01T09:59:00Z"},
             )
         )
+
+
+def test_event_allows_zero_duration():
+    event = Event.model_validate(
+        _minimal_event(
+            start={"dateTime": "2025-06-01T10:00:00Z"},
+            end={"dateTime": "2025-06-01T10:00:00Z"},
+        )
+    )
+
+    assert event.start.dateTime == event.end.dateTime
 
 
 def test_event_rejects_empty_id():

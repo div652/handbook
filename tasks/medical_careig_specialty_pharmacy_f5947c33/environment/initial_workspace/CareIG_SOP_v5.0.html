@@ -526,7 +526,7 @@ hr { border:0; border-top:1px solid var(--rule); margin: 2em 0; }</style>
 <p>If benefits.xlsx col PA_Required = NO, skip Sections 8.1 through 8.5. Proceed directly to Section 8.6 (Clinical Handoff), setting auth.xlsx col PA_Status = Not Required and PA_Number = N/A.</p>
 <h2 id="81-formulary-check">8.1 Formulary Check</h2>
 <p>Before submitting any PA, confirm the ordered drug is covered on the payer's formulary. Open payer_rules.xlsx. Read the row for the payer (benefits.xlsx col Primary_Insurance_Name). Check col Formulary_Covered_Drugs.</p><p><strong>If the ordered drug (intake.xlsx col Drug_Name) is not listed in payer_rules.xlsx col Formulary_Covered_Drugs for the payer:</strong></p>
-<p>Contact prescribing physician via phone to intake.xlsx col Physician_Phone to request either an alternative covered drug or a written formulary exception letter. Do not submit PA until one of the two paths below is confirmed. After reaching the physician, or if they could not be reached and the issue is still present, post to #intake-team: [FORMULARY ISSUE] CASE_ID | Drug: [Drug_Name] | Payer: [Insurance_Name].</p>
+<p>Contact prescribing physician via phone to intake.xlsx col Physician_Phone to request either an alternative covered drug or a written formulary exception letter. Do not submit PA until one of the two paths below is confirmed. After reaching the physician, or if they could not be reached and the issue is still present, post to #intake-team: [FORMULARY ISSUE] CASE_ID | Drug: [Drug_Name] | Payer: [Insurance_Name]. Exception: if the physician's guidance is already on file (Section 4.4) and the issue is resolved by applying it (e.g. an email authorizing substitution of a covered drug), proceed using that guidance and do not post the [FORMULARY ISSUE] notice.</p>
 <p>If the physician provides a formulary exception letter: save it as formulary_exception.pdf, document the basis in auth.xlsx col Formulary_Exception_Notes, and include it in the PA packet. Proceed to Section 8.2. If the physician substitutes an alternative covered drug: update intake.xlsx col Drug_Name with the new drug and restart Section 8.1. If neither is provided within 2 business days: post to #intake-mgmt: [FORMULARY UNRESOLVED] CASE_ID and hold the case.</p>
 <h2 id="82-required-pa-documents">8.2 Required PA Documents</h2>
 <p>All of the following must be saved in the case folder before PA submission:</p>
@@ -1354,7 +1354,7 @@ hr { border:0; border-top:1px solid var(--rule); margin: 2em 0; }</style>
 <tr>
 <td>D83.9</td>
 <td>CVID, unspecified</td>
-<td>MD progress note; IgG &lt; 400 mg/dL produced within last 6 months preceding PA or claim.</td>
+<td>MD progress note; IgG &lt; 400 mg/dL collected within last 6 months preceding PA or claim (specimen collection date governs, not the lab report date).</td>
 </tr>
 <tr>
 <td>D80.0</td>

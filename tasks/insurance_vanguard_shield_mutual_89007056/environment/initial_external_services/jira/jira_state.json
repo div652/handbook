@@ -3422,6 +3422,26 @@
         "name": "To Do",
         "colorName": "blue-gray"
       }
+    },
+    "4": {
+      "id": "4",
+      "name": "Approved",
+      "statusCategory": {
+        "id": 4,
+        "key": "done",
+        "name": "Done",
+        "colorName": "green"
+      }
+    },
+    "5": {
+      "id": "5",
+      "name": "Rejected",
+      "statusCategory": {
+        "id": 4,
+        "key": "done",
+        "name": "Done",
+        "colorName": "green"
+      }
     }
   },
   "workflow": {
@@ -3457,6 +3477,16 @@
         "id": "6",
         "name": "To Open",
         "to": "Open"
+      },
+      {
+        "id": "10",
+        "name": "Approve",
+        "to": "Approved"
+      },
+      {
+        "id": "11",
+        "name": "Reject",
+        "to": "Rejected"
       }
     ],
     "Open": [

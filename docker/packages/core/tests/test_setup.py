@@ -27,13 +27,13 @@ class SetupTests(unittest.TestCase):
 
     def _run(self, task_id: str | None = None) -> int:
         """Invoke setup.main() in-process and return its exit code (0 on normal return)."""
-        env = {"WORLDBENCH_ROOT": str(self.world_root)}
+        env = {"HANDBOOK_ROOT": str(self.world_root)}
         if task_id is not None:
-            env["WORLDBENCH_TASK_ID"] = task_id
+            env["HANDBOOK_TASK_ID"] = task_id
         with mock.patch.dict(os.environ, env, clear=False):
             os.environ.pop("BUNDLEDIR", None)
             if task_id is None:
-                os.environ.pop("WORLDBENCH_TASK_ID", None)
+                os.environ.pop("HANDBOOK_TASK_ID", None)
             try:
                 setup_mod.main()
                 return 0
@@ -64,7 +64,7 @@ class SetupTests(unittest.TestCase):
         assert (self.workdir / "shared.txt").read_text() == "shared context"
 
     def test_uses_generic_when_no_task_id(self):
-        """With no WORLDBENCH_TASK_ID set, generic setup_data/files/ is used."""
+        """With no HANDBOOK_TASK_ID set, generic setup_data/files/ is used."""
         generic_files = self.world_root / "setup_data" / "files"
         generic_files.mkdir(parents=True)
         (generic_files / "default.txt").write_text("default")
@@ -166,14 +166,14 @@ class SetupTests(unittest.TestCase):
         (generic_files / "sub").mkdir()
         (generic_files / "sub" / "b.txt").write_text("world")
 
-        env = {"WORLDBENCH_ROOT": str(self.world_root), "SETUID": "1000", "SETGID": "1000"}
+        env = {"HANDBOOK_ROOT": str(self.world_root), "SETUID": "1000", "SETGID": "1000"}
         with (
             mock.patch.dict(os.environ, env, clear=False),
             mock.patch("core.privilege.os.geteuid", return_value=0),
             mock.patch("core.privilege.os.chown") as chown,
         ):
             os.environ.pop("BUNDLEDIR", None)
-            os.environ.pop("WORLDBENCH_TASK_ID", None)
+            os.environ.pop("HANDBOOK_TASK_ID", None)
             setup_mod.main()
 
         chowned = sorted(call.args[0] for call in chown.call_args_list)

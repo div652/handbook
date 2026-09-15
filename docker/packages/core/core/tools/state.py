@@ -20,7 +20,7 @@ async def export_state() -> dict[str, list[dict[str, Any]]]:
     return state_codec.state_to_json()
 
 
-async def import_state(state: state_codec.SyntaraState) -> dict:
+async def import_state(state: state_codec.CoreState) -> dict:
     """Replace the full core state with the provided JSON.
 
     For synthetic-data injection and test setup. Round-trips with export_state.

@@ -45,7 +45,7 @@ Catalog search uses case-insensitive word-AND matching. Empty queries intentiona
 
 ## Toolsets
 
-66 tools total. Toolsets map to `WORLDBENCH_TOOL_SETS` values (prefixed form — e.g., `shopify_cart`).
+66 tools total. Toolsets map to `HANDBOOK_TOOL_SETS` values (prefixed form — e.g., `shopify_cart`).
 
 | Toolset | Tools | Description |
 |---------|-------|-------------|

@@ -32,7 +32,7 @@ def test_credential_shaped_vars_are_dropped(tmp_path, monkeypatch):
         # KEY
         "BRAVE_API_KEY": "x",
         "MY_PRIVATE_KEY_PATH": "/etc/key",
-        "WORLDBENCH_FOO_API_KEY": "x",
+        "HANDBOOK_FOO_API_KEY": "x",
         "GITHUB_TOKEN": "ghp_x",
         "AWS_SECRET_ACCESS_KEY": "aws-x",
         "stripe_secret": "x",  # case-insensitive
@@ -74,8 +74,8 @@ def test_innocuous_vars_pass_through(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.setenv("HOME", "/home/model")
     monkeypatch.setenv("LANG", "en_US.UTF-8")
-    monkeypatch.setenv("WORLDBENCH_TASK_ID", "task-123")
-    monkeypatch.setenv("WORLDBENCH_TOOL_SETS", "core_read")
+    monkeypatch.setenv("HANDBOOK_TASK_ID", "task-123")
+    monkeypatch.setenv("HANDBOOK_TOOL_SETS", "core_read")
     monkeypatch.setenv("RANDOM_CUSTOM_VAR", "value")
     monkeypatch.setenv("BRAVE_SEARCH_URL", "https://api.search.brave.com/res/v1/web/search")
     monkeypatch.setenv("PUBLIC_API_BASE", "https://api.example.com/v1")
@@ -86,8 +86,8 @@ def test_innocuous_vars_pass_through(tmp_path, monkeypatch):
     assert env["PATH"] == "/usr/bin:/bin"
     assert env["HOME"] == "/home/model"
     assert env["LANG"] == "en_US.UTF-8"
-    assert env["WORLDBENCH_TASK_ID"] == "task-123"
-    assert env["WORLDBENCH_TOOL_SETS"] == "core_read"
+    assert env["HANDBOOK_TASK_ID"] == "task-123"
+    assert env["HANDBOOK_TOOL_SETS"] == "core_read"
     assert env["RANDOM_CUSTOM_VAR"] == "value"
     assert env["BRAVE_SEARCH_URL"] == "https://api.search.brave.com/res/v1/web/search"
     assert env["PUBLIC_API_BASE"] == "https://api.example.com/v1"

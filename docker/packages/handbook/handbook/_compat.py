@@ -1,20 +1,20 @@
-"""Shared bits for the temporary ``syntara``→``core`` compatibility shim.
+"""Shared bits for the temporary ``handbook``→``core`` compatibility shim.
 
-``syntara`` was renamed to ``core`` (tools are now exposed un-namespaced as
-``bash``/``readFile``/… and ``executePython`` was dropped). This whole package
+``core`` exposes un-namespaced tools as ``bash``/``readFile``/… and does not
+include ``executePython``. This whole package
 exists only to keep pre-rename projects working while they migrate: it re-
-exposes the old ``syntara`` server (namespaced ``syntara__*`` tools, legacy
+exposes the old ``handbook`` server (namespaced ``handbook__*`` tools, legacy
 toolset names, ``executePython``) by forwarding every call to ``core``.
 
 Every forwarded call logs a deprecation warning (grep service logs for
-``DEPRECATED syntara compat``) so we can see which old features are still in use
+``DEPRECATED handbook compat``) so we can see which old features are still in use
 and chase down the last callers.
 
 REMOVE AFTER 2026-06-18. Checklist:
-  1. Delete the ``packages/syntara`` directory.
-  2. Drop ``packages/syntara`` from the root ``pyproject.toml`` workspace.members.
-  3. Remove the ``"syntara"`` entries from ``mcp_proxy/viewer.py`` name/icon maps.
-  4. Remove the both-syntara-and-core guard in ``mcp_proxy.commands.mcp``
+  1. Delete the ``packages/handbook`` directory.
+  2. Drop ``packages/handbook`` from the root ``pyproject.toml`` workspace.members.
+  3. Remove the ``"handbook"`` entries from ``mcp_proxy/viewer.py`` name/icon maps.
+  4. Remove the both-handbook-and-core guard in ``mcp_proxy.commands.mcp``
      (grep ``COMPAT_SHIM_NAME``).
 """
 
@@ -27,17 +27,17 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-logger = logging.getLogger("syntara.compat")
+logger = logging.getLogger("handbook.compat")
 
 REMOVAL_DATE = "2026-06-18"
 
 
 def _log_forward(tool: str) -> None:
     logger.warning(
-        "DEPRECATED syntara compat: tool %r called (forwarding to core). seed=%s. The 'syntara' "
+        "DEPRECATED handbook compat: tool %r called (forwarding to core). seed=%s. The 'handbook' "
         "compatibility package is removed after %s — migrate to the 'core' tool/toolset names.",
         tool,
-        os.environ.get("WORLDBENCH_SEED", "?"),
+        os.environ.get("HANDBOOK_SEED", "?"),
         REMOVAL_DATE,
     )
 

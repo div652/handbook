@@ -304,32 +304,32 @@ class TestDiscoverMcpServers:
             discover_mcp_servers(tmp_path, tool_sets=["google_mail"])
 
     def _core_and_shim(self, tmp_path):
-        """Create fake ``core`` and ``syntara`` (compat shim) packages."""
+        """Create fake ``core`` and ``handbook`` (compat shim) packages."""
         (tmp_path / "core").mkdir()
         (tmp_path / "core" / "mcp.json").write_text(
             json.dumps({"run": {"command": "python"}, "toolsets": {"read": ["readFile"]}})
         )
-        (tmp_path / "syntara").mkdir()
-        (tmp_path / "syntara" / "mcp.json").write_text(
+        (tmp_path / "handbook").mkdir()
+        (tmp_path / "handbook" / "mcp.json").write_text(
             json.dumps({"run": {"command": "python"}, "toolsets": {"read": ["readFile"]}})
         )
 
-    def test_core_and_syntara_shim_together_warns(self, tmp_path, caplog):
-        """core + the syntara compat shim are redundant but allowed — selecting both
-        mounts both surfaces and warns. REMOVE with the syntara package after 2026-06-18."""
+    def test_core_and_handbook_shim_together_warns(self, tmp_path, caplog):
+        """core + the handbook compat shim are redundant but allowed — selecting both
+        mounts both surfaces and warns. REMOVE with the handbook package after 2026-06-18."""
         self._core_and_shim(tmp_path)
         with caplog.at_level(logging.WARNING, logger="mcp_proxy"):
-            servers = discover_mcp_servers(tmp_path, tool_sets=["core_read", "syntara_read"])
-        assert sorted(s.name for s in servers) == ["core", "syntara"]
-        assert any("both 'core' and the legacy 'syntara'" in r.message for r in caplog.records)
+            servers = discover_mcp_servers(tmp_path, tool_sets=["core_read", "handbook_read"])
+        assert sorted(s.name for s in servers) == ["core", "handbook"]
+        assert any("both 'core' and the legacy 'handbook'" in r.message for r in caplog.records)
 
     def test_core_alone_is_allowed(self, tmp_path):
         self._core_and_shim(tmp_path)
         assert [s.name for s in discover_mcp_servers(tmp_path, tool_sets=["core_read"])] == ["core"]
 
-    def test_syntara_shim_alone_is_allowed(self, tmp_path):
+    def test_handbook_shim_alone_is_allowed(self, tmp_path):
         self._core_and_shim(tmp_path)
-        assert [s.name for s in discover_mcp_servers(tmp_path, tool_sets=["syntara_read"])] == ["syntara"]
+        assert [s.name for s in discover_mcp_servers(tmp_path, tool_sets=["handbook_read"])] == ["handbook"]
 
 
 class TestValidateToolSets:
@@ -391,7 +391,7 @@ class TestBuildProxyApp:
             def run_pre_steps(self, env):
                 return True
 
-            def start_service(self, env, port, proxy_token, command_prefix=None):
+            def start_service(self, env, port, proxy_token):
                 return FakeProc()
 
         monkeypatch.setattr(
@@ -426,9 +426,9 @@ class TestRunViewerStartup:
 
     def _stub_proxy_run(self, monkeypatch, tmp_path):
         app = self.FakeApp()
-        monkeypatch.setenv("WORLDBENCH_ROOT", str(tmp_path))
-        monkeypatch.setenv("WORLDBENCH_PACKAGES_ROOT", str(tmp_path))
-        monkeypatch.delenv("WORLDBENCH_TOOL_SETS", raising=False)
+        monkeypatch.setenv("HANDBOOK_ROOT", str(tmp_path))
+        monkeypatch.setenv("HANDBOOK_PACKAGES_ROOT", str(tmp_path))
+        monkeypatch.delenv("HANDBOOK_TOOL_SETS", raising=False)
         monkeypatch.delenv("PORT", raising=False)
         monkeypatch.setattr(mcp_command, "install_crash_handlers", lambda: None)
         monkeypatch.setattr(mcp_command, "build_proxy_app", lambda **_kwargs: app)

@@ -1,4 +1,4 @@
-"""Syntara viewer — read-only filesystem browser for the agent's sandbox workdir.
+"""Handbook viewer — read-only filesystem browser for the agent's sandbox workdir.
 
 Serves:
   GET /api/tree?path=<rel>   — directory listing
@@ -204,7 +204,7 @@ VIEWER_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Syntara — Sandbox</title>
+<title>Handbook — Sandbox</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; height: 100vh; overflow: hidden; }

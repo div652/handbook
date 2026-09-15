@@ -1,6 +1,6 @@
 # Jira Mock MCP Server
 
-Python mock Jira MCP server for offline Syntara tasks. It stores all service state in JSON and validates state with Pydantic models before writes.
+Python mock Jira MCP server for offline Handbook tasks. It stores all service state in JSON and validates state with Pydantic models before writes.
 
 ## Run
 

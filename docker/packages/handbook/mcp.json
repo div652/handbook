@@ -1,7 +1,7 @@
 {
   "run": {
     "command": "python",
-    "args": ["-m", "syntara.server"],
+    "args": ["-m", "handbook.server"],
     "env": {
       "SETUID": "1000",
       "SETGID": "1000",
@@ -12,7 +12,7 @@
   },
   "setup": {
     "command": "python",
-    "args": ["-m", "syntara.setup"],
+    "args": ["-m", "handbook.setup"],
     "env": {
       "SETUID": "1000",
       "SETGID": "1000",

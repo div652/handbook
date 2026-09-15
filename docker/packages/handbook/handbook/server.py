@@ -1,12 +1,12 @@
-"""Legacy ``syntara`` MCP server — a compatibility shim over ``core``.
+"""Legacy ``handbook`` MCP server — a compatibility shim over ``core``.
 
-Builds a FastMCP app named ``syntara`` whose tools forward to ``core`` (see
-``syntara.tools``). Reuses core's privilege-drop, workdir, proxy-token, and
+Builds a FastMCP app named ``handbook`` whose tools forward to ``core`` (see
+``handbook.tools``). Reuses core's privilege-drop, workdir, proxy-token, and
 viewer machinery verbatim so the runtime behaviour is identical to core; only
 the server name and the tool names/surface differ.
 
-REMOVE with the rest of the ``syntara`` package after 2026-06-18 (see
-``syntara._compat``).
+REMOVE with the rest of the ``handbook`` package after 2026-06-18 (see
+``handbook._compat``).
 """
 
 import os
@@ -14,17 +14,17 @@ import os
 from fastmcp import FastMCP
 from fastmcp.tools.function_tool import FunctionTool
 
-import syntara.tools as tools
+import handbook.tools as tools
 from core._token import capture_proxy_token
 from core.privilege import ensure_workdir
 from core.tools import sandbox
 from core.viewer import run_http_server
-from syntara.async_tool_guard import assert_tools_async
+from handbook.async_tool_guard import assert_tools_async
 
 
 def build_app() -> FastMCP:
-    """Build a FastMCP app exposing the legacy syntara tools (forwarding to core)."""
-    app = FastMCP("syntara")
+    """Build a FastMCP app exposing the legacy handbook tools (forwarding to core)."""
+    app = FastMCP("handbook")
     for tool_name in sorted(tools.__all__):
         tool_fn = getattr(tools, tool_name, None)
         if callable(tool_fn):
@@ -39,7 +39,7 @@ def main() -> None:
     # The server intentionally keeps running as root: it needs to read the
     # locked-down /app tree, and a root server lets us close /opt/venv to uid
     # 1000. Privilege is dropped per agent command instead — see
-    # syntara.tools.sandbox._privilege_drop_kwargs (the chokepoint every
+    # handbook.tools.sandbox._privilege_drop_kwargs (the chokepoint every
     # executeBash/executePython/file-tool subprocess flows through).
     ensure_workdir()
     # Land the running server in the agent's workdir so any tool that doesn't

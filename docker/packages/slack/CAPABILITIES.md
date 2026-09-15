@@ -32,7 +32,7 @@ A mock Slack workspace with channels, messages, threads, reactions, pins, user p
 
 ## Toolsets
 
-27 tools total: 25 model-facing tools plus 2 state tools. Toolsets map to `WORLDBENCH_TOOL_SETS` values (prefixed form — e.g., `slack_messages`).
+27 tools total: 25 model-facing tools plus 2 state tools. Toolsets map to `HANDBOOK_TOOL_SETS` values (prefixed form — e.g., `slack_messages`).
 
 | Toolset | Tools | Description |
 |---------|-------|-------------|

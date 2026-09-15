@@ -35,7 +35,7 @@ COPY packages/mcp_proxy/pyproject.toml       /app/packages/mcp_proxy/
 COPY packages/read_file_safe/pyproject.toml  /app/packages/read_file_safe/
 COPY packages/shopify/pyproject.toml         /app/packages/shopify/
 COPY packages/slack/pyproject.toml           /app/packages/slack/
-COPY packages/syntara/pyproject.toml         /app/packages/syntara/
+COPY packages/handbook/pyproject.toml         /app/packages/handbook/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-workspace --all-extras
@@ -73,14 +73,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN pip install --no-cache-dir openpyxl pdfplumber python-docx
 RUN mkdir -p ${WORKDIR} && chown -R model:model ${WORKDIR}
 
-# Lock down sibling MCP-server source from the model user (uid 1000). syntara
+# Lock down sibling MCP-server source from the model user (uid 1000). handbook
 # is the only server that runs as model; the rest run as root and never need
-# to be readable by the agent. syntara eagerly imports its full dependency
+# to be readable by the agent. handbook eagerly imports its full dependency
 # tree (incl. read_file_safe) before drop_privileges, so nothing else under
 # /app/packages needs to stay readable post-setuid. /app/packages itself stays
 # traversable so agents get a clean Permission denied rather than "directory
 # doesn't exist".
-RUN find /app/packages -mindepth 1 -maxdepth 1 -type d ! -name syntara \
+RUN find /app/packages -mindepth 1 -maxdepth 1 -type d ! -name handbook \
         -exec chown -R root:root {} + -exec chmod -R go-rwx {} +
 
 RUN echo "$GIT_SHA" > /app/.git-sha

@@ -2,8 +2,8 @@
 
 Lookup order for the source directory:
     1. Unified bundle: $BUNDLEDIR/files/  (when a trajectory bundle is mounted)
-    2. Task-specific:  {WORLDBENCH_ROOT}/tasks/setup_data/{WORLDBENCH_TASK_ID}/
-    3. Generic:        {WORLDBENCH_ROOT}/setup_data/
+    2. Task-specific:  {HANDBOOK_ROOT}/tasks/setup_data/{HANDBOOK_TASK_ID}/
+    3. Generic:        {HANDBOOK_ROOT}/setup_data/
 
 BUNDLEDIR is set by the parent process (``scripts/start.sh`` for local
 dev, the production harness in production) and points at the unpacked bundle root.
@@ -50,8 +50,8 @@ def main() -> None:
     # the model user can modify it. This script then exits — the actual MCP
     # server is a separate process invocation that does its own privilege drop.
     ensure_workdir()
-    task_id = os.environ.get("WORLDBENCH_TASK_ID")
-    world_root = Path(os.environ.get("WORLDBENCH_ROOT", os.getcwd()))
+    task_id = os.environ.get("HANDBOOK_TASK_ID")
+    world_root = Path(os.environ.get("HANDBOOK_ROOT", os.getcwd()))
 
     files_dir = _resolve_files_dir(world_root, task_id)
     if files_dir is None:

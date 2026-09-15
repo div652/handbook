@@ -139,7 +139,17 @@ def create_issue(
     assignee: str | None = None,
     description: str = "",
     components: str = "",
-    additional_fields: str = "{}",
+    additional_fields: Annotated[
+        str,
+        Field(
+            description=(
+                "JSON object string of additional fields to set at creation. Supports parent (issue key string), "
+                'labels (list of strings), and priority (name string or {"id","name"} object). Example: '
+                '{"parent":"PROJ-1","labels":["backend"],"priority":"High"}. Other fields, such as duedate or '
+                "custom fields, are rejected."
+            )
+        ),
+    ] = "{}",
     site_id: SiteIdArg = "default",
 ) -> dict[str, Any]:
     """Create a new Jira issue."""

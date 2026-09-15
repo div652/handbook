@@ -1,29 +1,18 @@
-"""In-container OpenHands agent runner.
+"""Run OpenHands inside the task container.
 
-Runs the OpenHands SDK agent loop *inside* the task container, talking to the
-syntara MCP proxy at ``localhost:8000/mcp`` (reachable in-container on every
-harbor environment, including Modal sandboxes where the host can't reach the
-port).
-
-Baked into the ``syntara`` image at build time (this
-single file is staged to ``/app/openhands-runner/openhands_runner.py`` next to an
-isolated venv holding ``openhands-sdk``). The host-side ``OpenHandsAgent`` uploads
-a config JSON, execs this script, and downloads the trajectory it writes.
+The agent uses the in-container MCP proxy. The image stores this file at
+``/app/openhands-runner/openhands_runner.py`` with an isolated ``openhands-sdk`` venv.
 
 Contract:
-- argv[1] = path to a config JSON: {instruction, systemPrompt, model, mcpUrl,
-  maxToolCalls}.
-- argv[2] = path to write the result/trajectory JSON to. This is a **dedicated
-  file**, NOT stdout: the OpenHands SDK prints a human-readable transcript to
-  stdout, so the machine-readable result must go to its own file for the host
-  to parse it.
-- The process exits 0 even when the agent loop errored — the error is recorded
-  in the trajectory's ``stopped_reason``/``error_message`` so the host decides
-  whether to fail the trial.
+- ``argv[1]`` is the config JSON path.
+- ``argv[2]`` is the trajectory JSON path. Stdout holds the readable transcript.
+- Agent errors are stored in the trajectory. The process still exits 0 so the host decides
+  whether the trial failed.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import sys
@@ -37,11 +26,29 @@ def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-def _resolve_llm_kwargs(config: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
-    """Split LLM kwargs into ``(constructor_kwargs, reasoning_effort)``.
+def _as_bool(value: Any) -> bool | None:
+    """Harbor passes ``--ak`` values as strings, so accept the usual spellings."""
+    if value is None or isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
-    ``reasoning_effort`` is pulled out so it can be applied post-construction. 
-    openhands.sdk otherwise won't accept `max` as a value. 
+
+def _responses_llm(base_cls: type) -> type:
+    """Pin an LLM subclass to the Responses API.
+
+    The SDK routes unknown proxy models to /chat/completions. Set ``responses_api=true`` when a
+    route serves only /responses. Build the subclass here because ``run`` imports the SDK.
+    """
+    return type("ResponsesLLM", (base_cls,), {"uses_responses_api": lambda self: True})
+
+
+def _resolve_llm_kwargs(
+    config: dict[str, Any],
+) -> tuple[dict[str, Any], str | None, str | None, bool | None]:
+    """Split constructor args from effort, summary, and route controls.
+
+    The SDK rejects ``max`` in the constructor, so effort is applied later. Summary goes in the
+    request body. ``responses_api`` selects the LLM class.
     """
     llm_kwargs = dict(config.get("llmKwargs") or {})
 
@@ -49,17 +56,25 @@ def _resolve_llm_kwargs(config: dict[str, Any]) -> tuple[dict[str, Any], str | N
     if effort is not None:
         effort = str(effort).strip().lower() or None
 
-    return llm_kwargs, effort
+    if invoice_line_item_id := os.environ.get("SURGE_INVOICE_LINE_ITEM_ID"):
+        llm_kwargs["extra_headers"] = {
+            **dict(llm_kwargs.get("extra_headers") or {}),
+            "X-Invoice-Line-Item-Id": invoice_line_item_id,
+        }
+    summary = llm_kwargs.pop("reasoning_summary", None)
+    if summary is not None:
+        summary = str(summary).strip().lower() or None
+
+    forced = _as_bool(llm_kwargs.pop("responses_api", None))
+
+    return llm_kwargs, effort, summary, forced
 
 
 def _resolve_llm_auth(model_name: str) -> tuple[str, str | None, str | None]:
-    """Map harbor's ``provider/model`` id to a litellm (model, api_key, base_url).
+    """Map a Harbor model ID to LiteLLM credentials.
 
-    ``openrouter/anthropic/<model>`` is rewritten to ``anthropic/<model>`` (dots
-    -> dashes) so Anthropic models route through the Anthropic provider, never
-    OpenRouter. To send Anthropic traffic through an LLM proxy, point
-    ``ANTHROPIC_BASE_URL`` at the proxy endpoint and set ``ANTHROPIC_API_KEY`` to
-    the proxy token.
+    OpenRouter Anthropic IDs keep the Anthropic route. Other OpenRouter IDs use the
+    OpenAI-compatible proxy.
     """
     if "/" not in model_name:
         raise ValueError(
@@ -70,6 +85,8 @@ def _resolve_llm_auth(model_name: str) -> tuple[str, str | None, str | None]:
     if provider == "openrouter" and model.startswith("anthropic/"):
         provider = "anthropic"
         model = model.split("/", 1)[1].replace(".", "-")
+    elif provider == "openrouter":
+        provider = "openai"
 
     if provider == "anthropic":
         litellm_model = f"anthropic/{model}"
@@ -81,13 +98,17 @@ def _resolve_llm_auth(model_name: str) -> tuple[str, str | None, str | None]:
 
     _provider_key_env = {
         "openai": "OPENAI_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
         "google": "GEMINI_API_KEY",
         "gemini": "GEMINI_API_KEY",
     }
     api_key = os.environ.get(_provider_key_env.get(provider, ""))
-    base_url = os.environ.get("OPENAI_BASE_URL") if provider == "openai" else None
-    return model_name, api_key, base_url
+    if provider == "openai":
+        base_url = os.environ.get("OPENAI_BASE_URL")
+    elif provider in ("google", "gemini"):
+        base_url = os.environ.get("GEMINI_BASE_URL")
+    else:
+        base_url = None
+    return f"{provider}/{model}", api_key, base_url
 
 
 def _usage(*llms: Any) -> dict[str, int | float | None]:
@@ -129,15 +150,9 @@ def _usage(*llms: Any) -> dict[str, int | float | None]:
     }
 
 
-# Tool observations larger than this (in chars) are kept intact. The OpenHands
-# SDK otherwise hard-truncates every tool result at DEFAULT_TEXT_CONTENT_LIMIT
-# (50_000) — see openhands/sdk/utils/truncate.py — which silently drops the tail
-# of large reads (a 24-page SOP PDF is ~56 KB, big spreadsheet dumps similar).
-# The worldbench baseline feeds tool outputs to the model untruncated (it only
-# shortens them when building compaction summaries), so an aggressive per-call
-# cap is a parity gap that costs OpenHands rubric points on SOP-heavy tasks.
-# 1 MB clears every realistic task read with headroom while still guarding
-# against a pathological multi-MB blob blowing the context window.
+# The SDK truncates tool results at 50K characters. That can cut off large PDFs and sheets.
+# A 1,000,000-character cap preserves realistic reads while protecting the context window
+# from unusually large output.
 TOOL_OBSERVATION_CHAR_LIMIT = 1_000_000
 
 
@@ -155,9 +170,218 @@ def _raise_tool_observation_limit() -> None:
     _message.DEFAULT_TEXT_CONTENT_LIMIT = TOOL_OBSERVATION_CHAR_LIMIT
 
 
-def run(config: dict[str, Any]) -> dict[str, Any]:
-    from pydantic import SecretStr
+def _merge_tool_outputs() -> None:
+    """Send one ``function_call_output`` per tool call on the /responses path.
 
+    The SDK emits one output per content block. MCP observations often have two blocks, but the
+    proxy requires one output per call. Merge the blocks without dropping content.
+    """
+    from openhands.sdk.llm.utils import responses_serialization as _rs
+
+    if getattr(_rs, "_surge_merges_tool_outputs", False):
+        return
+    original = _rs._tool_to_responses_items
+
+    def merged(message, *, vision_enabled: bool) -> list[dict[str, Any]]:
+        items = original(message, vision_enabled=vision_enabled)
+        if len(items) < 2:
+            return items
+        # Preserve block order, including the order of images and captions.
+        parts: list[dict[str, Any]] = []
+        for item in items:
+            out = item["output"]
+            if isinstance(out, str):
+                parts.append({"type": "input_text", "text": out})
+            else:
+                parts.extend(out)
+        # Keep text-only output as a string.
+        output: Any = ("\n".join(p["text"] for p in parts)
+                       if all(p.get("type") == "input_text" for p in parts) else parts)
+        return [{"type": "function_call_output", "call_id": items[0]["call_id"],
+                 "output": output}]
+
+    _rs._tool_to_responses_items = merged
+    _rs._surge_merges_tool_outputs = True
+
+
+# Compatibility patches for the SDK pinned in docker/Dockerfile. SDK/LiteLLM imports
+# are deferred so the host environment can import this module without installing the SDK.
+_responses_replay_installed = False
+
+# Reasoning models that openhands.sdk does not include in SEND_REASONING_CONTENT_MODELS
+# Note: these are substrings not full model IDs
+# TODO: Remove entries as the pinned SDK gains native support.
+REASONING_REPLAY_MODELS = (
+    "qwen/qwen3.8-max",
+    "tencent/hy3",
+    "z-ai/glm",
+    "meta/muse-glimmer-30b",
+    "thinkingmachines/inkling",
+    "meta/muse-spark-1.2",
+    "meta/muse-spark-1.3",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "tencent/hy4-preview",
+    "kimi-k2.7",
+    # OpenHands SDK 1.43.1 includes this model natively; the pinned 1.28.1 does not.
+    "kimi-k3",
+)
+
+# Model IDs missing from pinned litellm registry.
+# TODO: Remove entries as the pinned LiteLLM registry gains native support.
+_GEMINI_37_FLASH_INFO = {
+    "litellm_provider": "gemini",
+    "mode": "chat",
+    "supports_reasoning": True,
+    "supports_function_calling": True,
+    "supports_vision": True,
+    "supports_prompt_caching": True,
+}
+MISSING_LITELLM_MODELS = {
+    "gemini/gemini-3.7-flash": _GEMINI_37_FLASH_INFO,
+    "gemini-3.7-flash": _GEMINI_37_FLASH_INFO,
+}
+
+
+def install_model_capabilities() -> None:
+    """Fix model-capability gaps in the pinned SDK/litellm. Idempotent."""
+    import litellm
+    from openhands.sdk.llm.utils import model_features as _model_features
+
+    allowlist = _model_features.SEND_REASONING_CONTENT_MODELS
+    for pattern in REASONING_REPLAY_MODELS:
+        if pattern not in allowlist:
+            allowlist.append(pattern)
+    litellm.register_model(MISSING_LITELLM_MODELS)
+
+
+def install_responses_replay() -> None:
+    """Patch the SDK so Responses API history survives round-trips.
+
+    When openhands converts Responses API <-> Message, it strips all but the
+    last reasoning item. Idempotent; call before the loop. Strategy:
+
+    1. Add a field to the ReasoningItemModel to capture the original output
+       items.
+    2. Capture the full ordered output on conversion.
+    3. Replay the original items verbatim on serialization.
+    """
+    import openhands.sdk.llm.utils.responses_serialization as ser_mod
+    from openhands.sdk.event.base import Event
+    from openhands.sdk.llm.message import Message, ReasoningItemModel
+    from pydantic.fields import FieldInfo
+
+    global _responses_replay_installed
+    if _responses_replay_installed:
+        return
+
+    # -- 1. add the persistence field to the real class -------------------
+    if "responses_output_items" not in ReasoningItemModel.__pydantic_fields__:
+        ReasoningItemModel.__pydantic_fields__["responses_output_items"] = FieldInfo(
+            annotation=list[dict[str, Any]] | None, default=None, repr=False
+        )
+        ReasoningItemModel.model_rebuild(force=True)
+
+        # Nested schemas were compiled against the old shape; recompile every
+        # model that can carry a ReasoningItemModel through persistence.
+        Message.model_rebuild(force=True)
+        _rebuild_subclass_tree(Event)
+
+    # -- 2. capture the full ordered output on conversion -----------------
+    original_from_output = Message.from_llm_responses_output.__func__
+
+    def from_output_with_capture(cls: type, output: Any) -> Any:
+        items = list(output or [])
+        message = original_from_output(cls, items)
+        carrier = message.responses_reasoning_item
+        if carrier is not None:
+            carrier.responses_output_items = [
+                copy.deepcopy(item)
+                if isinstance(item, dict)
+                else item.model_dump(mode="json", exclude_none=True)
+                for item in items
+            ]
+        return message
+
+    Message.from_llm_responses_output = classmethod(from_output_with_capture)
+
+    # -- 3. replay the original items verbatim on serialization -----------
+    original_assistant = ser_mod._assistant_to_responses_items
+
+    def assistant_with_replay(message: Any) -> list[dict[str, Any]]:
+        """Replay the original items verbatim on serialization."""
+        carrier = getattr(message, "responses_reasoning_item", None)
+        items = getattr(carrier, "responses_output_items", None)
+        if items is not None:
+            return copy.deepcopy(items)
+        return original_assistant(message)
+
+    ser_mod._assistant_to_responses_items = assistant_with_replay
+
+    _responses_replay_installed = True
+
+
+def _rebuild_subclass_tree(cls: type) -> None:
+    """Rebuild the Pydantic model tree for all subclasses of the given class."""
+    cls.model_rebuild(force=True)  # type: ignore[attr-defined]
+    for subclass in cls.__subclasses__():
+        _rebuild_subclass_tree(subclass)
+
+
+def _share_reasoning_item_across_parallel_actions() -> None:
+    """Keep the Responses reasoning carrier on a parallel tool-call turn.
+
+    openhands-sdk 1.28.1's ``_combine_action_events`` rebuilds the assistant message of a multi-action
+    batch without ``responses_reasoning_item``; 1.43.1 copies it from the first event (event/base.py).
+    Apply that one-field fix here so the replay above also covers parallel tool calls.
+    """
+    import openhands.sdk.event.base as _event_base
+
+    if getattr(_event_base, "_surge_shares_reasoning_item", False):
+        return
+    original_combine = _event_base._combine_action_events
+
+    def combine(events: list[Any]) -> Any:
+        message = original_combine(events)
+        if message.responses_reasoning_item is None:
+            message.responses_reasoning_item = events[0].responses_reasoning_item
+        return message
+
+    _event_base._combine_action_events = combine
+    _event_base._surge_shares_reasoning_item = True
+
+
+def configure_condenser_transport(llm: Any) -> None:
+    """Route condenser calls through the Responses API when the model uses it.
+
+    The SDK's ``LLMSummarizingCondenser`` hard-codes the Chat Completions
+    transport (``completion``/``acompletion``) even when its model is a
+    Responses-API model, so a trial that triggers compaction sends
+    Responses-specific request configuration to the wrong endpoint and
+    fails. Rebind the condenser LLM's transports to
+    ``responses``/``aresponses``; condenser calls are tool-free, so drop
+    ``tool_choice`` from the prepared request.
+    """
+    if not llm.uses_responses_api():
+        return
+
+    finalize = llm._finalize_responses_params
+
+    def finalize_condenser_params(*args: Any, **kwargs: Any) -> Any:
+        # (instructions, input_items, resp_tools, call_kwargs, telemetry_ctx)
+        prepared = finalize(*args, **kwargs)
+        prepared[3].pop("tool_choice", None)
+        telemetry_kwargs = prepared[4].get("kwargs")
+        if isinstance(telemetry_kwargs, dict):
+            telemetry_kwargs.pop("tool_choice", None)
+        return prepared
+
+    # LLM is a frozen pydantic model; bypass its setattr guard.
+    object.__setattr__(llm, "_finalize_responses_params", finalize_condenser_params)
+    object.__setattr__(llm, "completion", llm.responses)
+    object.__setattr__(llm, "acompletion", llm.aresponses)
+
+
+def run(config: dict[str, Any]) -> dict[str, Any]:
     from openhands.sdk import (
         LLM,
         Agent,
@@ -169,12 +393,17 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
     )
     from openhands.sdk.event import ActionEvent, AgentErrorEvent
     from openhands.sdk.llm.message import content_to_str
+    from pydantic import SecretStr
 
     _raise_tool_observation_limit()
+    _merge_tool_outputs()
+    install_responses_replay()
+    _share_reasoning_item_across_parallel_actions()
+    install_model_capabilities()
 
     model_name = config["model"]
     litellm_model, api_key, base_url = _resolve_llm_auth(model_name)
-    llm_kwargs, reasoning_effort = _resolve_llm_kwargs(config)
+    llm_kwargs, reasoning_effort, reasoning_summary, responses_api = _resolve_llm_kwargs(config)
 
     # Opt-in per-call request logging (--ak log_completions=true). Point the
     # folder at the trajectory's log dir so it's downloaded with the trial. Each
@@ -191,12 +420,10 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
         f"base_url={base_url or 'default'})"
     )
 
-    # timeout=600 matches worldbench's ~10-min per-call ceiling (anthropic-sdk.ts
-    # uses `timeout: 600000 - 1`). The OpenHands LLM default is 300s, and
-    # litellm.Timeout isn't in its retryable set, so a slow proxy call surfaces as
-    # a fatal RuntimeError and drops the trial — doubling the ceiling matches the
-    # baseline and cuts those spurious exclusions.
-    llm = LLM(
+    # Allow 10 minutes per model call. OpenHands defaults to 300 seconds, and LiteLLM does
+    # not retry its timeout, so slow proxy calls otherwise drop valid trials.
+    llm_cls = _responses_llm(LLM) if responses_api else LLM
+    llm = llm_cls(
         usage_id="agent",
         model=litellm_model,
         api_key=SecretStr(api_key) if api_key else None,
@@ -205,15 +432,9 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
         **llm_kwargs,
     )
 
-    # Context compaction, for parity with worldbench (which summarizes old turns
-    # to stay within the window). We use the SDK defaults (event-count trigger at
-    # max_size=240, keep_first=2): for these tasks neither harness's compaction
-    # actually fires, but this gives the *reactive* recovery path — on a real
-    # context-window overflow the SDK emits a CondensationRequest and retries with
-    # a summarized history instead of hard-erroring the trial. The summarizer runs
-    # on the same model/proxy as the agent (worldbench summarizes with its agent
-    # model too); a separate LLM instance just keeps its metrics distinct.
-    condenser_llm = LLM(
+    # The SDK summarizes old turns after a context overflow and retries. A separate
+    # LLM instance keeps condenser metrics distinct.
+    condenser_llm = llm_cls(
         usage_id="condenser",
         model=litellm_model,
         api_key=SecretStr(api_key) if api_key else None,
@@ -222,25 +443,30 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
         **llm_kwargs,
     )
 
+    anthropic = litellm_model.startswith("anthropic/")
+    reasoning: dict[str, str] = {}
     if reasoning_effort is not None:
-        if litellm_model.startswith("anthropic/"):
+        if anthropic:
             llm.reasoning_effort = reasoning_effort
             condenser_llm.reasoning_effort = reasoning_effort
         else:
-            rb = {"reasoning": {"effort": reasoning_effort}}
-            llm.litellm_extra_body = {**llm.litellm_extra_body, **rb}
-            condenser_llm.litellm_extra_body = {**condenser_llm.litellm_extra_body, **rb}
+            reasoning["effort"] = reasoning_effort
+    if reasoning_summary is not None and not anthropic:
+        reasoning["summary"] = reasoning_summary
+    if reasoning:
+        rb = {"reasoning": reasoning}
+        llm.litellm_extra_body = {**llm.litellm_extra_body, **rb}
+        condenser_llm.litellm_extra_body = {**condenser_llm.litellm_extra_body, **rb}
 
-    # Pass the office-assistant prompt as `system_prompt` (verbatim full
-    # replacement) rather than an AgentContext suffix — otherwise OpenHands'
-    # default SWE-coding system prompt dominates and diverges from worldbench,
-    # which uses the office-assistant prompt as *the* system message.
+    configure_condenser_transport(condenser_llm)
+
+    # Use the task's system prompt in place of the default coding prompt.
     agent = Agent(
         llm=llm,
         tools=[],
         mcp_config={
             "mcpServers": {
-                "syntara": {
+                "handbook": {
                     "url": config["mcpUrl"],
                     "timeout": MCP_TOOL_TIMEOUT,
                 }
@@ -259,6 +485,9 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
         nonlocal n_tool_calls, n_agent_errors, final_output, error_message
         if isinstance(event, ActionEvent):
             n_tool_calls += 1
+            # The finish tool ends the run without an agent MessageEvent; its message is the final answer.
+            if event.tool_name == "finish" and getattr(event.action, "message", ""):
+                final_output = event.action.message
         elif isinstance(event, AgentErrorEvent):
             n_agent_errors += 1
             error_message = getattr(event, "error", None) or str(event)
@@ -294,7 +523,7 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
         # failure even if the agent had already made tool calls.
         stopped_reason = "error"
     elif infra_failure and not did_work:
-        # ERROR status with nothing produced — genuine failure.
+        # ERROR with no output is a genuine failure.
         stopped_reason = "error"
     elif status_val == ConversationExecutionStatus.STUCK.value:
         stopped_reason = "stuck"
@@ -330,8 +559,7 @@ def main() -> None:
     try:
         result = run(config)
     except Exception as e:
-        # Hard failure before/around the loop — still emit a trajectory so the
-        # host can surface it as an errored (excluded) trial rather than a crash.
+        # Preserve pre-loop failures in a trajectory for the host.
         result = {
             "agent_id": "openhands_sdk",
             "model": config.get("model"),

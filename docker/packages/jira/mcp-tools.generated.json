@@ -273,6 +273,7 @@
           },
           "additional_fields": {
             "default": "{}",
+            "description": "JSON object string of additional fields to set at creation. Supports parent (issue key string), labels (list of strings), and priority (name string or {\"id\",\"name\"} object). Example: {\"parent\":\"PROJ-1\",\"labels\":[\"backend\"],\"priority\":\"High\"}. Other fields, such as duedate or custom fields, are rejected.",
             "type": "string"
           },
           "site_id": {

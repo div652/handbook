@@ -191,6 +191,32 @@ async def test_search_events_attendee_filter_can_search_without_keywords():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filter_name", "filter_value", "event_id"),
+    [
+        ("attendee_email", "Alice Chen", "evt-budget"),
+        ("organizer_email", "finance-lead", "evt-budget"),
+        ("creator_email", "manager", "evt-budget"),
+    ],
+)
+async def test_search_identity_filters_accept_documented_substrings(filter_name: str, filter_value: str, event_id: str):
+    gc = _get_gc()
+
+    result = await gc.search_events(query="", **{filter_name: filter_value})
+
+    assert result["count"] == 1
+    assert result["events"][0]["id"] == event_id
+
+
+def test_search_identity_filters_are_string_typed():
+    # EmailStr rejected the documented display-name and partial-email inputs at the FastMCP boundary.
+    gc = _get_gc()
+
+    for field in ("attendee_email", "organizer_email", "creator_email"):
+        assert gc.search_events.__annotations__[field] == str | None
+
+
+@pytest.mark.asyncio
 async def test_search_events_filters_by_response_status_for_attendee():
     gc = _get_gc()
 

@@ -11,10 +11,10 @@ Modal, and its local equivalent). It
 launches the MCP proxy in-container itself; it does not handle the compose
 host-side path.
 
-Container prerequisites (baked into the ``syntara`` base image at build time):
+Container prerequisites (baked into the ``handbook`` base image at build time):
 - the runner at ``/app/openhands-runner/openhands_runner.py``
 - an isolated venv with ``openhands-sdk`` at ``/app/openhands-runner/.venv``
-- the syntara MCP proxy launcher at ``/app/scripts/start.sh``
+- the handbook MCP proxy launcher at ``/app/scripts/start.sh``
 
 Usage:
     harbor run -p .modal_tasks/some_task \
@@ -66,6 +66,8 @@ FORWARDED_ENV_VARS = (
     "OPENAI_BASE_URL",
     "OPENROUTER_API_KEY",
     "GEMINI_API_KEY",
+    "GEMINI_BASE_URL",
+    "SURGE_INVOICE_LINE_ITEM_ID",
 )
 
 
@@ -76,11 +78,22 @@ def _forwarded_env() -> dict[str, str]:
 FORWARDED_LLM_KWARGS = (
     "reasoning_effort",
     "reasoning_summary",
+    "responses_api",
+    # Send assistant and tool content as plain strings. Some OpenAI-compatible endpoints
+    # accept content blocks only on user messages and reject them elsewhere, which fails
+    # every request after the first tool call.
+    "force_string_serializer",
+    # Cap on generated tokens. An OpenAI-compatible endpoint that states no cap of its
+    # own falls back to 4096, which truncates a long agentic turn mid-tool-call.
+    "max_tokens",
     # Opt-in: --ak log_completions=true makes the runner dump each LLM call's
     # request payload (including the kwargs actually sent, e.g. reasoning_effort)
     # into the trial's agent/ log dir for verification.
     "log_completions",
 )
+
+# harbor passes every ``--ak`` value through as a string; these reach the LLM as ints.
+INT_LLM_KWARGS = ("max_tokens",)
 
 
 class OpenHandsAgent(BaseAgent):
@@ -93,6 +106,9 @@ class OpenHandsAgent(BaseAgent):
         self.llm_kwargs = {
             k: kwargs.pop(k) for k in FORWARDED_LLM_KWARGS if k in kwargs
         }
+        for k in INT_LLM_KWARGS:
+            if k in self.llm_kwargs:
+                self.llm_kwargs[k] = int(self.llm_kwargs[k])
         super().__init__(*args, **kwargs)
 
     @staticmethod

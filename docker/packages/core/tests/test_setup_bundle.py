@@ -28,13 +28,13 @@ class BundleLayoutTests(unittest.TestCase):
         self._env_patch = mock.patch.dict(
             os.environ,
             {
-                "WORLDBENCH_ROOT": str(self.world_root),
+                "HANDBOOK_ROOT": str(self.world_root),
                 "BUNDLEDIR": str(self.bundle_dir),
             },
             clear=False,
         )
         self._env_patch.start()
-        os.environ.pop("WORLDBENCH_TASK_ID", None)
+        os.environ.pop("HANDBOOK_TASK_ID", None)
 
         self._original_workdir = sandbox.WORKDIR
         sandbox.WORKDIR = str(self.workdir)

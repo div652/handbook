@@ -2,8 +2,8 @@
 
 There is no standalone setup command: ``build_proxy_app`` discovers MCP
 servers and runs each one's ``install`` then ``setup`` hook from
-``mcp.json`` (forwarding WORLDBENCH_* env vars) before starting the
-server. Servers are selected by WORLDBENCH_TOOL_SETS: only servers whose
+``mcp.json`` (forwarding HANDBOOK_* env vars) before starting the
+server. Servers are selected by HANDBOOK_TOOL_SETS: only servers whose
 mcp.json declares at least one of the requested namespaced toolsets are
 included. An empty / unset value runs no setup hooks.
 
@@ -57,24 +57,24 @@ class SetupCommandTests(unittest.TestCase):
         the list of server names whose install or setup hook failed — empty
         on success.
 
-        Defaults WORLDBENCH_TOOL_SETS to every fake package's ``_default``
+        Defaults HANDBOOK_TOOL_SETS to every fake package's ``_default``
         toolset so each test gets full coverage without spelling them out.
         Override via *env_overrides* when a test wants narrower filtering.
         """
         default_sets = " ".join(f"{p.name}_default" for p in sorted(self.packages_root.iterdir()) if p.is_dir())
         env = {
-            "WORLDBENCH_ROOT": self.temp_dir,
-            "WORLDBENCH_PACKAGES_ROOT": str(self.packages_root),
-            "WORLDBENCH_TOOL_SETS": default_sets,
+            "HANDBOOK_ROOT": self.temp_dir,
+            "HANDBOOK_PACKAGES_ROOT": str(self.packages_root),
+            "HANDBOOK_TOOL_SETS": default_sets,
         }
         if env_overrides:
             env.update(env_overrides)
 
         failed: list[str] = []
         with mock.patch.dict(os.environ, env):
-            base_dir = Path(os.environ["WORLDBENCH_ROOT"]).resolve()
-            packages_root = Path(os.environ["WORLDBENCH_PACKAGES_ROOT"])
-            tool_sets = os.environ["WORLDBENCH_TOOL_SETS"].split()
+            base_dir = Path(os.environ["HANDBOOK_ROOT"]).resolve()
+            packages_root = Path(os.environ["HANDBOOK_PACKAGES_ROOT"])
+            tool_sets = os.environ["HANDBOOK_TOOL_SETS"].split()
             for cfg in discover_mcp_servers(packages_root, tool_sets=tool_sets):
                 hook_env = _build_subprocess_env(base_dir, cfg.name, declared_secrets=cfg.secrets)
                 if not cfg.run_install(hook_env) or not cfg.run_setup(hook_env):
@@ -105,7 +105,7 @@ class SetupCommandTests(unittest.TestCase):
         assert failed == [], failed
 
     def test_forwards_env_vars(self):
-        """WORLDBENCH_* env vars are forwarded to the setup hook."""
+        """HANDBOOK_* env vars are forwarded to the setup hook."""
         marker = Path(self.temp_dir) / "env_check.txt"
         self._create_server(
             "svc",
@@ -113,12 +113,12 @@ class SetupCommandTests(unittest.TestCase):
                 "command": "python",
                 "args": [
                     "-c",
-                    f"import os; open('{marker}', 'w').write(os.environ.get('WORLDBENCH_TASK_ID', 'MISSING'))",
+                    f"import os; open('{marker}', 'w').write(os.environ.get('HANDBOOK_TASK_ID', 'MISSING'))",
                 ],
             },
         )
 
-        failed = self._run_setup({"WORLDBENCH_TASK_ID": "test-123"})
+        failed = self._run_setup({"HANDBOOK_TASK_ID": "test-123"})
         assert failed == [], failed
         assert marker.read_text() == "test-123"
 
@@ -143,7 +143,7 @@ class SetupCommandTests(unittest.TestCase):
             toolsets={"write": ["tool_b"]},
         )
 
-        failed = self._run_setup({"WORLDBENCH_TOOL_SETS": "alpha_read"})
+        failed = self._run_setup({"HANDBOOK_TOOL_SETS": "alpha_read"})
         assert failed == [], failed
         assert marker_a.exists()
         assert not marker_b.exists()

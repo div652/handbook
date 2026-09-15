@@ -30,7 +30,7 @@ A mock calendar service supporting multiple calendars, recurring events, attende
 
 ## Toolsets
 
-10 tools total. Toolsets map to `WORLDBENCH_TOOL_SETS` values (prefixed form — e.g., `google_calendar_events`).
+10 tools total. Toolsets map to `HANDBOOK_TOOL_SETS` values (prefixed form — e.g., `google_calendar_events`).
 
 | Toolset | Tools | Description |
 |---------|-------|-------------|

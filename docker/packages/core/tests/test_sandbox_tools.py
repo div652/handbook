@@ -30,7 +30,7 @@ class ReadFileTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.original_workdir = sandbox.WORKDIR
-        self.sandbox_dir = tempfile.mkdtemp(prefix="syntara-read-test-")
+        self.sandbox_dir = tempfile.mkdtemp(prefix="handbook-read-test-")
         self.workdir = os.path.join(self.sandbox_dir, "workdir")
         os.makedirs(self.workdir, exist_ok=True)
         sandbox.WORKDIR = self.workdir
@@ -542,7 +542,7 @@ class ReadFileOffsetLimitTests(unittest.IsolatedAsyncioTestCase):
 class WriteFileTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.original_workdir = sandbox.WORKDIR
-        self.sandbox_dir = tempfile.mkdtemp(prefix="syntara-write-test-")
+        self.sandbox_dir = tempfile.mkdtemp(prefix="handbook-write-test-")
         self.workdir = os.path.join(self.sandbox_dir, "workdir")
         os.makedirs(self.workdir, exist_ok=True)
         sandbox.WORKDIR = self.workdir
@@ -690,7 +690,7 @@ class WriteFileTests(unittest.IsolatedAsyncioTestCase):
 class ListFilesTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.original_workdir = sandbox.WORKDIR
-        self.sandbox_dir = tempfile.mkdtemp(prefix="syntara-list-test-")
+        self.sandbox_dir = tempfile.mkdtemp(prefix="handbook-list-test-")
         self.workdir = os.path.join(self.sandbox_dir, "workdir")
         os.makedirs(self.workdir, exist_ok=True)
         sandbox.WORKDIR = self.workdir
@@ -815,7 +815,7 @@ class ListFilesTests(unittest.IsolatedAsyncioTestCase):
 class ReadPDFTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.original_workdir = sandbox.WORKDIR
-        self.sandbox_dir = tempfile.mkdtemp(prefix="syntara-read-pdf-test-")
+        self.sandbox_dir = tempfile.mkdtemp(prefix="handbook-read-pdf-test-")
         self.workdir = os.path.join(self.sandbox_dir, "workdir")
         os.makedirs(self.workdir, exist_ok=True)
         sandbox.WORKDIR = self.workdir
@@ -865,7 +865,7 @@ class ReadPDFTests(unittest.IsolatedAsyncioTestCase):
 class ExecuteBashTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.original_workdir = sandbox.WORKDIR
-        self.sandbox_dir = tempfile.mkdtemp(prefix="syntara-exec-bash-test-")
+        self.sandbox_dir = tempfile.mkdtemp(prefix="handbook-exec-bash-test-")
         os.makedirs(self.sandbox_dir, exist_ok=True)
         sandbox.WORKDIR = self.sandbox_dir
 
@@ -913,7 +913,7 @@ class TimeoutHandlingTests(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.original_workdir = sandbox.WORKDIR
-        self.sandbox_dir = tempfile.mkdtemp(prefix="syntara-timeout-test-")
+        self.sandbox_dir = tempfile.mkdtemp(prefix="handbook-timeout-test-")
         os.makedirs(self.sandbox_dir, exist_ok=True)
         sandbox.WORKDIR = self.sandbox_dir
 
@@ -966,7 +966,7 @@ class SandboxWorkdirTests(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.original_workdir = sandbox.WORKDIR
-        self.sandbox_dir = tempfile.mkdtemp(prefix="syntara-workdir-test-")
+        self.sandbox_dir = tempfile.mkdtemp(prefix="handbook-workdir-test-")
         os.makedirs(self.sandbox_dir, exist_ok=True)
         sandbox.WORKDIR = self.sandbox_dir
 
@@ -1005,16 +1005,6 @@ class SandboxWorkdirTests(unittest.IsolatedAsyncioTestCase):
         assert result["returncode"] == 0
         assert "secret-do-not-leak" not in result["stdout"]
         assert result["stdout"].strip() == "TOKEN="
-
-    async def test_faketime_shared_stripped_from_agent_shell(self):
-        """FAKETIME_SHARED must not reach the sandbox: libfaketime would try to
-        open the root-owned /dev/shm semaphore it names and hang the dropped-uid
-        child on its first clock read. LD_PRELOAD / FAKETIME are intentionally
-        kept so the clock stays faked."""
-        with mock.patch.dict(os.environ, {"FAKETIME_SHARED": "/faketime_sem_1 /faketime_shm_1"}):
-            result = await bash("echo SHARED=$FAKETIME_SHARED")
-        assert result["returncode"] == 0
-        assert result["stdout"].strip() == "SHARED="
 
 
 if __name__ == "__main__":

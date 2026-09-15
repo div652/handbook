@@ -626,6 +626,29 @@ def get_epic_issues(epic_key: IssueKey, limit: LimitArg = 10, startAt: StartAtAr
     }
 
 
+_DEFAULT_PRIORITY_IDS = {"Highest": "1", "High": "2", "Medium": "3", "Low": "4", "Lowest": "5"}
+
+
+def _resolve_priority(value: Any) -> JiraPriority:
+    """Accept a priority name (string or name-only object) or a full ``{"id", "name"}`` object.
+
+    A name resolves to the seeded priority of that name, then to Jira's default priorities, so create
+    and update store the same id/name pairs and never pair a new name with another priority's id.
+    """
+    if isinstance(value, dict) and "id" not in value and isinstance(value.get("name"), str):
+        value = value["name"]
+    if not isinstance(value, str):
+        return JiraPriority.model_validate(value)
+    lowered = value.strip().lower()
+    for issue in get_state().issues.values():
+        if issue.fields.priority is not None and issue.fields.priority.name.lower() == lowered:
+            return issue.fields.priority.model_copy()
+    for name, priority_id in _DEFAULT_PRIORITY_IDS.items():
+        if name.lower() == lowered:
+            return JiraPriority(id=priority_id, name=name)
+    raise ValueError(f"Unknown priority name {value!r}; a custom priority needs both `id` and `name`")
+
+
 def create_issue(
     project_key: ProjectKeyArg,
     summary: str,
@@ -633,7 +656,17 @@ def create_issue(
     assignee: str | None = None,
     description: str = "",
     components: str = "",
-    additional_fields: str = "{}",
+    additional_fields: Annotated[
+        str,
+        Field(
+            description=(
+                "JSON object string of additional fields to set at creation. Supports parent (issue key string), "
+                'labels (list of strings), and priority (name string or {"id","name"} object). Example: '
+                '{"parent":"PROJ-1","labels":["backend"],"priority":"High"}. Other fields, such as duedate or '
+                "custom fields, are rejected."
+            )
+        ),
+    ] = "{}",
 ) -> dict[str, Any]:
     """Create a new Jira issue."""
     parsed_components = _parse_components(components) if components.strip() else []
@@ -643,11 +676,19 @@ def create_issue(
         raise ValueError("Invalid JSON in `additional_fields` parameter") from exc
     if not isinstance(additional, dict):
         raise ValueError("Invalid JSON in `additional_fields` parameter")
+    unsupported_fields = sorted(set(additional) - {"parent", "labels", "priority"})
+    if unsupported_fields:
+        raise ValueError(f"Unsupported create_issue additional_fields field(s): {', '.join(unsupported_fields)}")
+    # Validate everything before create_new_issue persists the issue, so a bad field cannot leave an orphan.
     parent = None
     if parent_key := additional.get("parent"):
-        parent = get_state().issues.get(parent_key)
+        parent = get_state().issues.get(parent_key) if isinstance(parent_key, str) else None
+        if parent is None:
+            raise ValueError(f"Parent issue {parent_key} not found")
     labels = additional.get("labels")
-    priority = JiraPriority.model_validate(additional["priority"]) if "priority" in additional else None
+    if labels is not None and not (isinstance(labels, list) and all(isinstance(label, str) for label in labels)):
+        raise ValueError("`labels` in additional_fields must be a list of strings")
+    priority = _resolve_priority(additional["priority"]) if "priority" in additional else None
 
     issue = create_new_issue(project_key, summary, issue_type, description, assignee)
     if parsed_components:
@@ -705,15 +746,7 @@ def update_issue(
     priority_update = None
     if "priority" in fields_obj:
         priority = fields_obj["priority"]
-        priority_update = (
-            None
-            if priority is None
-            else JiraPriority.model_validate(
-                {"id": issue.fields.priority.id if issue.fields.priority else "3", "name": priority}
-            )
-            if isinstance(priority, str)
-            else JiraPriority.model_validate(priority)
-        )
+        priority_update = None if priority is None else _resolve_priority(priority)
     assignee_update = None
     if "assignee" in fields_obj and fields_obj["assignee"] is not None:
         assignee_update = _resolve_user_ref(fields_obj["assignee"])

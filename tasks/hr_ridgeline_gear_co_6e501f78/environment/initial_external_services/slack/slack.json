@@ -333,7 +333,7 @@
       "pending_shared": [],
       "pending_connected_team_ids": [],
       "context_team_id": "T001",
-      "updated": 1775861100,
+      "updated": 1776091500,
       "creator": "U1001",
       "shared_team_ids": [
         "T001"
@@ -631,6 +631,14 @@
         "ts": "1775861100.001000",
         "team": "T001",
         "client_msg_id": "msg-c001-0010"
+      },
+      {
+        "type": "message",
+        "user": "U1002",
+        "text": "RTW confirmed: LC-2026-0046 (Indira Carroll) \u2014 Rachel Kim confirmed Indira returned to work this morning as scheduled. No failure-to-return concerns. I'll close out the case with this week's routine updates \u2014 nothing needed from the leaves inbox on this one.",
+        "ts": "1776091500.001100",
+        "team": "T001",
+        "client_msg_id": "msg-c001-0011"
       }
     ],
     "C002": [

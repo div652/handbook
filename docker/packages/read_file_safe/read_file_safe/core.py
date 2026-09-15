@@ -108,7 +108,7 @@ def assemble_read_result(
     ``HEADER_SNIFF_BYTES`` for binary detection) and ``raw`` (the slice at
     ``start`` of length ``limit``). Split out from :func:`read_file_safe` so a
     caller that must perform the actual read under a different privilege (e.g.
-    syntara reading as the unprivileged sandbox user) can reuse the decoding /
+    handbook reading as the unprivileged sandbox user) can reuse the decoding /
     binary-sniff / pagination logic without this module doing the ``open()``.
     """
     binary_err = _binary_error_from_header(header)

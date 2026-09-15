@@ -29,7 +29,7 @@ A mock Jira project tracker with issues, sprints, workflow transitions, time tra
 
 ## Toolsets
 
-34 tools total, including state import/export. `all` / `jira_all` contains the 32 non-state tools. Toolsets map to `WORLDBENCH_TOOL_SETS` values (prefixed form — e.g., `jira_issues`).
+34 tools total, including state import/export. `all` / `jira_all` contains the 32 non-state tools. Toolsets map to `HANDBOOK_TOOL_SETS` values (prefixed form — e.g., `jira_issues`).
 
 | Toolset | Tools | Description |
 |---------|-------|-------------|

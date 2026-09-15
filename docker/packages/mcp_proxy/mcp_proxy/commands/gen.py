@@ -1,7 +1,7 @@
 """Generate per-package mcp-tools.generated.json files.
 
 Discovers MCP servers the same way the ``mcp`` and ``setup`` commands do
-(WORLDBENCH_ROOT, WORLDBENCH_PACKAGES_ROOT), spawns each server in HTTP mode to
+(HANDBOOK_ROOT, HANDBOOK_PACKAGES_ROOT), spawns each server in HTTP mode to
 introspect its tools, and writes one file per package:
 
   - packages/<name>/mcp-tools.generated.json   (tools + toolset membership)
@@ -129,10 +129,10 @@ def _gen_pkg(cfg: McpService, env: dict[str, str]) -> tuple[list[dict], dict[str
 
 
 def run() -> None:
-    base_dir = Path(os.environ.get("WORLDBENCH_ROOT", os.getcwd())).resolve()
-    packages_root = Path(os.environ.get("WORLDBENCH_PACKAGES_ROOT") or (base_dir / "packages"))
+    base_dir = Path(os.environ.get("HANDBOOK_ROOT", os.getcwd())).resolve()
+    packages_root = Path(os.environ.get("HANDBOOK_PACKAGES_ROOT") or (base_dir / "packages"))
 
-    # gen always introspects every package, regardless of WORLDBENCH_TOOL_SETS.
+    # gen always introspects every package, regardless of HANDBOOK_TOOL_SETS.
     configs = _iter_packages(packages_root)
     if not configs:
         print(f"[GEN] No MCP servers found under {packages_root}", file=sys.stderr)
@@ -140,7 +140,7 @@ def run() -> None:
 
     env = {
         **os.environ,
-        "WORLDBENCH_ROOT": str(base_dir),
+        "HANDBOOK_ROOT": str(base_dir),
     }
 
     for cfg in configs:
