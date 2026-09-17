@@ -290,6 +290,41 @@ Do not launch the full run until all smoke checks pass:
 the extension reports zero usage and the harness converts that to unavailable.
 A smoke score measures only that one attempt; it is not a benchmark score.
 
+### Observed Opus 4.8 high-effort failure signature
+
+On 2026-09-17, a smoke using `copilot/claude-opus-4.8`,
+`reasoning_effort=high`, extension 0.1.0, and the representative finance task
+passed model discovery, the trivial reasoning probe, MCP startup, relay
+authentication, and request-protocol validation. The first substantive request
+contained the wrapped system instructions, user request, and 84 tools. It did
+not produce a response or tool call.
+
+LiteLLM logged an `APITimeoutError` after about 30 minutes and started a
+request-level retry. The retry also did not return before Harbor enforced the
+3,600-second agent timeout. Harbor recorded:
+
+```text
+exception_type: AgentTimeoutError
+exception_message: Agent execution timed out after 3600.0 seconds
+agent_result.metadata: null
+reward: 0.3333
+```
+
+This is an infrastructure-error smoke, not a valid partial benchmark score.
+Do not start the full 260-trial job from this state, and do not assume more
+parallel containers will fix it. Parallelism would multiply stuck requests
+until the extension/model path can complete at least one substantive smoke
+within the published task timeout.
+
+The extension's Output channel showed the substantive request beginning with
+the exact model and nested high effort, but never logged a corresponding
+response. The Copilot Chat log likewise had no completion record for that
+request. Preserve all three artifacts when investigating:
+
+- the trial `result.json`;
+- `agent/run-openhands.log`;
+- the `GH Copilot Server` and GitHub Copilot Chat output logs.
+
 ## 6. Configure and launch the full job
 
 A conservative full-job configuration is:
