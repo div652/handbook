@@ -26,6 +26,10 @@ Built by the [Surge AI](https://www.surgehq.ai) evals team. To evaluate your mod
 - [`BENCHMARK_RUNBOOK.md`](BENCHMARK_RUNBOOK.md) — operational instructions for
   reproducible TRAPI runs, including authentication, model selection,
   concurrency, retries, monitoring, recovery, and final scoring.
+- [`COPILOT_BENCHMARK_RUNBOOK.md`](COPILOT_BENCHMARK_RUNBOOK.md) —
+  operational instructions for VS Code Copilot proxy runs, including
+  loopback-server setup, exact model/reasoning validation, immutable inputs,
+  smoke testing, concurrency, monitoring, recovery, and scoring.
 
 ## Quick start
 
@@ -57,6 +61,9 @@ than reusing the example or a previous job's values.
 
 The harness can retain the OpenHands loop while routing its individual model
 calls through the `GH Copilot Server` VS Code extension:
+
+Follow [`COPILOT_BENCHMARK_RUNBOOK.md`](COPILOT_BENCHMARK_RUNBOOK.md) for a
+reproducible smoke or full leaderboard run.
 
 ```bash
 export COPILOT_PROXY_BASE_URL=http://127.0.0.1:3141/v1

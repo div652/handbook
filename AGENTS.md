@@ -4,6 +4,9 @@ For any task that starts, resumes, evaluates, debugs, or modifies a HANDBOOK
 benchmark run, read and follow [`BENCHMARK_RUNBOOK.md`](BENCHMARK_RUNBOOK.md)
 first.
 
+For a VS Code Copilot proxy run, also read and follow
+[`COPILOT_BENCHMARK_RUNBOOK.md`](COPILOT_BENCHMARK_RUNBOOK.md).
+
 Before running a model, explicitly confirm the provider endpoint/instance,
 exact model deployment, reasoning effort, and expected API mode with the
 operator. Do not reuse values from an earlier job. Copilot proxy runs require
